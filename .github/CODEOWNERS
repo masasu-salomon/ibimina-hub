@@ -1,0 +1,9 @@
+# Every pull request needs a review from at least one team member.
+*                                @masasu-salomon @Phillip-mulindwa @grevy-k
+
+# Module owners
+/src/modules/groups/             @masasu-salomon
+/src/modules/members/            @Phillip-mulindwa
+/src/modules/contributions/      @Phillip-mulindwa
+/src/modules/payouts/            @grevy-k
+/src/modules/summary/            @grevy-k

@@ -1,0 +1,103 @@
+# =============================================================
+# Ibimina Hub - .gitignore
+# Grouped by category. Rule of thumb: commit source, never
+# commit secrets, generated files or machine-specific files.
+# =============================================================
+
+# ---------- Secrets & environment ----------
+# Real config lives in .env (never committed); .env.example is the template.
+.env
+.env.*
+!.env.example
+*.local
+config.local.*
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+id_rsa*
+credentials.json
+service-account*.json
+
+# ---------- Dependencies ----------
+node_modules/
+jspm_packages/
+bower_components/
+.pnp.*
+.yarn/*
+!.yarn/releases
+.npm/
+
+# ---------- Build output & artifacts ----------
+dist/
+build/
+out/
+*.tgz
+.cache/
+.parcel-cache/
+
+# ---------- Tests & coverage ----------
+coverage/
+.nyc_output/
+junit.xml
+test-results/
+
+# ---------- Logs ----------
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ---------- Runtime data ----------
+pids/
+*.pid
+*.seed
+*.pid.lock
+*.sqlite
+*.sqlite3
+*.db
+tmp/
+temp/
+
+# ---------- IDEs & editors ----------
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.iml
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# ---------- Operating system ----------
+.DS_Store
+.AppleDouble
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ---------- Infrastructure (later formatives) ----------
+# Terraform state can contain secrets and must never be committed.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!example.tfvars
+crash.log
+override.tf
+override.tf.json
+.terraform.lock.hcl.bak
+
+# Local Docker overrides
+docker-compose.override.yml
