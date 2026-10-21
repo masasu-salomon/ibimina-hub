@@ -116,6 +116,25 @@ npm test                  # all tests
 npm run test:coverage     # with a coverage report
 ```
 
+### Run with Docker
+
+```bash
+docker build -t ibimina-hub .
+docker run -p 3000:3000 ibimina-hub
+```
+
+The image uses a multi-stage build, contains only production dependencies, runs as the
+non-root `node` user and has a built-in health check on `/health`.
+
+### Continuous integration
+
+Every pull request to `main` runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
+
+1. **Test**: `npm ci`, the Jest suite with coverage, and `npm audit` (fails on high-severity vulnerabilities).
+2. **Docker build**: builds the image, starts a container and checks `/health` responds.
+
+Both jobs are required status checks, so a PR can't be merged until they pass.
+
 ### Configuration
 
 | Variable | Default | Description |
