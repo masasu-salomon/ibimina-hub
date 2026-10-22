@@ -41,7 +41,7 @@ record of members, contributions and payouts.
 | 1 | **Savings groups**: create a group with a fixed contribution amount and frequency (weekly / monthly) | ✅ Done | @masasu-salomon |
 | 2 | **Member registration**: add members with a validated Rwandan mobile-money number (MTN / Airtel); join order sets the payout rotation | ✅ Done | @Phillip-mulindwa |
 | 3 | **Contributions & balances**: record contributions and see the pot balance and each member's total | ✅ Done | @Phillip-mulindwa |
-| 4 | **Payout rotation**: see whose turn is next and pay out the pot when enough money has been collected | 🚧 In progress | @grevy-k |
+| 4 | **Payout rotation**: see whose turn is next and pay out the pot when enough money has been collected | ✅ Done | @grevy-k |
 | 5 | **Group summary**: one view of members, totals and payout progress for meetings | 🚧 In progress | @grevy-k |
 
 ## Technology stack
