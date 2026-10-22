@@ -39,8 +39,8 @@ record of members, contributions and payouts.
 | # | Feature | Status | Owner |
 |---|---|---|---|
 | 1 | **Savings groups**: create a group with a fixed contribution amount and frequency (weekly / monthly) | ✅ Done | @masasu-salomon |
-| 2 | **Member registration**: add members with a validated Rwandan mobile-money number (MTN / Airtel); join order sets the payout rotation | 🚧 In progress | @Phillip-mulindwa |
-| 3 | **Contributions & balances**: record contributions and see the pot balance and each member's total | 🚧 In progress | @Phillip-mulindwa |
+| 2 | **Member registration**: add members with a validated Rwandan mobile-money number (MTN / Airtel); join order sets the payout rotation | ✅ Done | @Phillip-mulindwa |
+| 3 | **Contributions & balances**: record contributions and see the pot balance and each member's total | ✅ Done | @Phillip-mulindwa |
 | 4 | **Payout rotation**: see whose turn is next and pay out the pot when enough money has been collected | 🚧 In progress | @grevy-k |
 | 5 | **Group summary**: one view of members, totals and payout progress for meetings | 🚧 In progress | @grevy-k |
 
@@ -158,7 +158,7 @@ Errors look like `{ "error": "message", "details": ["..."] }`.
 | `GET` | `/api/groups/:groupId/members` | List members in payout order |
 | `POST` | `/api/groups/:groupId/contributions` | Record a contribution: `{ memberId, amount? }` |
 | `GET` | `/api/groups/:groupId/contributions` | List contributions |
-| `GET` | `/api/groups/:groupId/balance` | Pot balance and each member's total |
+| `GET` | `/api/groups/:groupId/balance` | Total contributed and each member's total |
 | `GET` | `/api/groups/:groupId/payouts/next` | Whose turn is next |
 | `POST` | `/api/groups/:groupId/payouts` | Pay the next member |
 | `GET` | `/api/groups/:groupId/payouts` | Payout history |
