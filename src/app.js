@@ -4,6 +4,8 @@ const healthRoutes = require('./modules/health/health.routes');
 const groupRoutes = require('./modules/groups/groups.routes');
 const memberRoutes = require('./modules/members/members.routes');
 const contributionRoutes = require('./modules/contributions/contributions.routes');
+const payoutRoutes = require('./modules/payouts/payouts.routes');
+const summaryRoutes = require('./modules/summary/summary.routes');
 
 function createApp() {
   const app = express();
@@ -13,6 +15,8 @@ function createApp() {
   app.use('/api/groups', groupRoutes);
   app.use('/api/groups/:groupId/members', memberRoutes);
   app.use('/api/groups/:groupId', contributionRoutes);
+  app.use('/api/groups/:groupId/payouts', payoutRoutes);
+  app.use('/api/groups/:groupId/summary', summaryRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
