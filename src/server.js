@@ -1,6 +1,8 @@
 const createApp = require('./app');
 const config = require('./config');
 
+const deliberateLintBreak = 'unused';
+
 const app = createApp();
 
 app.listen(config.port, () => {
