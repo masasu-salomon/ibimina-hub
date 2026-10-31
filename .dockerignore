@@ -13,3 +13,7 @@ tests
 *.md
 Dockerfile
 .dockerignore
+# dev tooling and compose files, the image doesn't need them
+eslint.config.js
+docker-compose*.yml
+compose*.yml
