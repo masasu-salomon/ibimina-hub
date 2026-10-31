@@ -1,12 +1,12 @@
 # ---- Stage 1: install production dependencies only ----
-FROM node:20-alpine AS deps
+FROM node:20.20.2-alpine3.23 AS deps
 WORKDIR /app
 # Copy the manifests first so this layer is cached until dependencies change
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 # ---- Stage 2: small runtime image ----
-FROM node:20-alpine
+FROM node:20.20.2-alpine3.23
 ENV NODE_ENV=production \
     PORT=3000
 WORKDIR /app
