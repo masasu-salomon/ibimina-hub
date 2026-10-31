@@ -57,15 +57,16 @@ behind a small collection interface so that persistent storage can be introduced
 - **Frontend**: None; this version provides a REST API
 - **Database**: In-memory store (`src/common/store.js`), designed for later PostgreSQL support
 - **Testing**: Jest and Supertest
-- **Other**: Docker and GitHub Actions CI
+- **Linting**: ESLint 9
+- **Other**: Docker, Docker Compose and GitHub Actions CI
 
 ## Getting Started
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) 18 or newer
-- npm
-- Docker (optional, for container usage)
+- [Node.js](https://nodejs.org/) 18 or newer and npm, to run without Docker
+- [Docker](https://docs.docker.com/get-docker/) with Docker Compose v2.24 or newer, to run in a
+  container (Docker Desktop includes both; check with `docker compose version`)
 
 ### Installation
 
@@ -112,19 +113,84 @@ curl -X POST http://localhost:3000/api/groups \
   -d '{"name":"Twiyubake Nyamirambo","contributionAmount":5000,"frequency":"weekly","location":"Kigali"}'
 ```
 
-Run the test suite:
+Run the linter and the test suite:
 
 ```bash
+npm run lint
 npm test
 npm run test:coverage
 ```
 
-Run with Docker:
+## Running with Docker Compose
+
+Docker Compose builds the image from the `Dockerfile` and starts the API. No local Node.js
+install is needed.
+
+1. Optionally create a `.env` file. Compose loads it when it exists and uses safe defaults
+   when it does not:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Build and start the stack:
+
+   ```bash
+   docker compose up --build        # add -d to run in the background
+   ```
+
+3. Check that the container is healthy and the API responds:
+
+   ```bash
+   docker compose ps                # STATUS shows (healthy)
+   curl http://localhost:3000/health
+   ```
+
+4. Follow the logs, or stop and remove the stack:
+
+   ```bash
+   docker compose logs -f api
+   docker compose down
+   ```
+
+The stack has one `api` service on the `ibimina-network` network. It restarts unless
+stopped, and a health check calls `/health` every 10 seconds. There is no database
+container or volume yet, because data lives in memory and resets when the container
+restarts. A PostgreSQL service and its volume can join the same network later.
+
+To build and run the image without Compose:
 
 ```bash
 docker build -t ibimina-hub .
 docker run -p 3000:3000 ibimina-hub
 ```
+
+### Environment Variables
+
+| Variable | Default | Used by | Purpose |
+|---|---|---|---|
+| `PORT` | `3000` | App | Port the API listens on inside the container |
+| `HOST_PORT` | `3000` | Compose | Port on your computer that forwards to the container |
+| `NODE_ENV` | `production` in the image | App | Runtime mode |
+| `CURRENCY` | `RWF` | App | Currency shown with amounts |
+
+Set `HOST_PORT` in `.env` if port 3000 is already in use on your computer. Never commit
+the real `.env` file.
+
+## Continuous Integration
+
+GitHub Actions runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml) on every push
+to a branch other than `main` and on every pull request targeting `main`. It:
+
+1. checks out the code and sets up Node.js 20
+2. installs dependencies with `npm ci`
+3. runs ESLint (`npm run lint`)
+4. runs the Jest tests with coverage
+5. audits production dependencies for high-severity vulnerabilities
+6. builds the Docker image and smoke-tests `/health` in a running container
+
+Any failing step fails the run. Branch protection on `main` requires the `Test` and
+`Docker build` checks to pass, plus one approving review, before a pull request can merge.
 
 ## Project Structure
 
