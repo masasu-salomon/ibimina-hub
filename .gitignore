@@ -94,6 +94,7 @@ $RECYCLE.BIN/
 *.tfstate.*
 *.tfvars
 !example.tfvars
+!*.tfvars.example
 crash.log
 override.tf
 override.tf.json
