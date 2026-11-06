@@ -1,0 +1,14 @@
+# Copy to dev.tfvars (Git ignores it) and fill in your own values:
+#   cp dev.tfvars.example dev.tfvars
+
+environment = "dev"
+location    = "southafricanorth"
+
+# Standard_B1s is blocked on some student subscriptions. Check yours:
+#   az vm list-skus --location southafricanorth --size Standard_B --all -o table
+vm_size = "Standard_B2ats_v2"
+
+ssh_public_key_path = "~/.ssh/id_rsa.pub"
+
+# Your public IP with /32. Find it with: curl ifconfig.me
+admin_cidrs = ["203.0.113.10/32"]
