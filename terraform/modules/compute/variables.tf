@@ -28,13 +28,13 @@ variable "admin_username" {
   type        = string
 }
 
-variable "ssh_public_key" {
-  description = "Contents of the SSH public key allowed to log in (RSA; Azure rejects some other types)."
-  type        = string
+variable "ssh_public_keys" {
+  description = "SSH public keys allowed to log in as admin_username, one per team member (RSA; Azure rejects some other types)."
+  type        = list(string)
 
   validation {
-    condition     = startswith(trimspace(var.ssh_public_key), "ssh-rsa ")
-    error_message = "ssh_public_key must be an OpenSSH RSA public key (starts with ssh-rsa)."
+    condition     = length(var.ssh_public_keys) > 0 && alltrue([for k in var.ssh_public_keys : startswith(trimspace(k), "ssh-rsa ")])
+    error_message = "ssh_public_keys needs at least one OpenSSH RSA public key (starts with ssh-rsa)."
   }
 }
 

@@ -97,12 +97,13 @@ IP address or a subscription is hardcoded in the `.tf` files.
 | `environment` | (required) | `dev`, `staging` or `prod`. Goes into names and tags |
 | `location` | (required) | Azure region, e.g. `southafricanorth` |
 | `vm_size` | (required) | Must be one of the small burstable sizes in the validation list |
-| `admin_cidrs` | (required) | IPs allowed to SSH. `0.0.0.0/0` is rejected by validation |
+| `admin_cidrs` | (required) | IPs allowed to SSH, one `/32` per team member. `0.0.0.0/0` is rejected by validation |
 | `subscription_id` | `null` | `null` means read `ARM_SUBSCRIPTION_ID` from the environment |
 | `project_name` | `ibimina-hub` | Name prefix |
 | `app_port` | `3000` | Port the API is published on |
 | `app_allowed_cidrs` | `["0.0.0.0/0"]` | Who can reach the API |
-| `ssh_public_key_path` / `ssh_public_key` | `~/.ssh/id_rsa.pub` / `null` | Path, or the key itself (useful in CI) |
+| `ssh_public_key_path` / `ssh_public_key` | `~/.ssh/id_rsa.pub` / `null` | Your key: a path, or the key itself (useful in CI) |
+| `extra_ssh_public_keys` | `[]` | Teammates' public keys, so each person can SSH in and run Ansible |
 | `admin_username` | `azureuser` | Login user Ansible connects as |
 | `vnet_cidr`, `subnet_cidr` | `10.20.0.0/16`, `10.20.1.0/24` | Network ranges |
 | `os_disk_size_gb` | `30` | OS disk size |

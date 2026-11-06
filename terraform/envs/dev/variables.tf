@@ -61,6 +61,12 @@ variable "ssh_public_key" {
   default     = null
 }
 
+variable "extra_ssh_public_keys" {
+  description = "Teammates' SSH public keys (contents, not paths), so they can log in too."
+  type        = list(string)
+  default     = []
+}
+
 variable "admin_cidrs" {
   description = "Public IPs allowed to SSH in, in CIDR form. Find yours with: curl ifconfig.me"
   type        = list(string)

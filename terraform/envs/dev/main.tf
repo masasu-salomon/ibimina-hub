@@ -15,8 +15,12 @@ locals {
     var.extra_tags,
   )
 
-  # The key can be passed directly (CI, remote runs) or read from a file (laptop).
-  ssh_public_key = coalesce(var.ssh_public_key, try(file(pathexpand(var.ssh_public_key_path)), null))
+  # The operator's key (passed directly in CI, or read from a file on a laptop),
+  # plus teammates' keys so each person can SSH in and run Ansible.
+  ssh_public_keys = distinct(compact(concat(
+    [coalesce(var.ssh_public_key, try(file(pathexpand(var.ssh_public_key_path)), null))],
+    var.extra_ssh_public_keys,
+  )))
 }
 
 resource "azurerm_resource_group" "this" {
@@ -58,7 +62,7 @@ module "compute" {
   subnet_id           = module.network.subnet_id
   vm_size             = var.vm_size
   admin_username      = var.admin_username
-  ssh_public_key      = local.ssh_public_key
+  ssh_public_keys     = local.ssh_public_keys
   os_disk_size_gb     = var.os_disk_size_gb
   tags                = local.tags
 

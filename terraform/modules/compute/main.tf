@@ -40,9 +40,13 @@ resource "azurerm_linux_virtual_machine" "this" {
   admin_username                  = var.admin_username
   disable_password_authentication = true
 
-  admin_ssh_key {
-    username   = var.admin_username
-    public_key = var.ssh_public_key
+  # One block per teammate's key, all for the same login user.
+  dynamic "admin_ssh_key" {
+    for_each = var.ssh_public_keys
+    content {
+      username   = var.admin_username
+      public_key = admin_ssh_key.value
+    }
   }
 
   # No VM extensions: everything on the box is managed by Ansible, so there is
