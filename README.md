@@ -189,7 +189,16 @@ to a branch other than `main` and on every pull request targeting `main`. It:
 5. audits production dependencies for high-severity vulnerabilities
 6. builds the Docker image and smoke-tests `/health` in a running container
 
-Any failing step fails the run. Branch protection on `main` requires the `Test` and
+Any failing step fails the run.
+
+After a pull request merges, [`.github/workflows/release.yml`](.github/workflows/release.yml)
+builds the image again and publishes it to GitHub Container Registry as
+`ghcr.io/masasu-salomon/ibimina-hub:<commit sha>` and `:latest`. The servers pull it from there.
+The package is public, so pulling needs no login:
+
+```bash
+docker run -p 3000:3000 ghcr.io/masasu-salomon/ibimina-hub:latest
+``` Branch protection on `main` requires the `Test` and
 `Docker build` checks to pass, plus one approving review, before a pull request can merge.
 
 ## Project Structure
