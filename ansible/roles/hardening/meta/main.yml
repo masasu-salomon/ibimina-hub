@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  role_name: hardening
+  author: Phillip Mulindwa
+  description: SSH hardening, UFW firewall, fail2ban and kernel network hardening.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+dependencies: []

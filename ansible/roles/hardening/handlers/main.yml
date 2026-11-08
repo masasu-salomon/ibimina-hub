@@ -1,0 +1,18 @@
+---
+# Both handlers listen to "Restart ssh" and run in this order: the full config
+# is tested first, so a broken config fails here instead of killing sshd.
+- name: Test the full sshd config
+  ansible.builtin.command: sshd -t
+  changed_when: false
+  listen: Restart ssh
+
+- name: Restart the ssh service
+  ansible.builtin.systemd_service:
+    name: ssh
+    state: restarted
+  listen: Restart ssh
+
+- name: Restart fail2ban
+  ansible.builtin.systemd_service:
+    name: fail2ban
+    state: restarted
