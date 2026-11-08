@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Dynamic Ansible inventory built from Terraform outputs.
 
-Runs `terraform output -json` in terraform/envs/dev (override with TF_DIR) and
-puts the VM in the "app" group:
+Runs `terraform output -json` in terraform/envs/dev (override with TF_DIR, and
+the terraform binary with TF_BIN) and puts the VM in the "app" group:
 
     ansible_host = public_ip output
     ansible_user = ssh_user output
@@ -52,9 +52,12 @@ def read_outputs(tf_dir):
         warn(f"Terraform folder not found: {tf_dir}. Set TF_DIR to the right path.")
         return None
 
+    # cwd instead of -chdir: under WSL, TF_BIN=terraform.exe (Windows Terraform,
+    # for state created from PowerShell) then gets the folder translated for it.
     try:
         result = subprocess.run(
-            [terraform, f"-chdir={tf_dir}", "output", "-json", "-no-color"],
+            [terraform, "output", "-json", "-no-color"],
+            cwd=tf_dir,
             capture_output=True,
             text=True,
             timeout=TIMEOUT_SECONDS,
