@@ -1,0 +1,114 @@
+---
+- name: Check the image settings
+  ansible.builtin.assert:
+    that:
+      - app_image | length > 0
+      - app_tag | string | length > 0
+      - app_port | int > 1023
+    fail_msg: "app_image and app_tag must be set and app_port must be above 1023 (got {{ app_image }}:{{ app_tag }} on {{ app_port }})."
+    quiet: true
+
+# ---------- Remember what is running now, for rollback ----------
+- name: Look up the container that is running now
+  community.docker.docker_container_info:
+    name: "{{ app_container_name }}"
+  register: app_current
+
+# The image ID (sha256:...) is saved, not the tag: with "latest" the tag will
+# point at the new image after the pull, but the ID still means the old one.
+- name: Remember the current image so we can roll back to it
+  ansible.builtin.set_fact:
+    app_previous_image_id: "{{ app_current.container.Image if app_current.exists else '' }}"
+    app_previous_image_ref: "{{ app_current.container.Config.Image if app_current.exists else 'none' }}"
+    app_deploy_ok: false
+    app_rolled_back: false
+
+- name: Show the image we would roll back to
+  ansible.builtin.debug:
+    msg: "Previous image: {{ app_previous_image_ref }} {{ app_previous_image_id[7:19] }}"
+
+# Only untagged images no container uses. The running image is kept for rollback.
+- name: Remove old dangling images
+  community.docker.docker_prune:
+    images: true
+    images_filters:
+      dangling: true
+  when: app_prune_dangling_images | bool
+
+# ---------- Deploy, check, roll back on failure ----------
+- name: Deploy {{ app_image + ':' + app_tag | string }}
+  block:
+    # force_source pulls every run so "latest" gets updates, but the task only
+    # reports a change when the image ID really changed.
+    - name: Pull the image
+      community.docker.docker_image:
+        name: "{{ app_image }}"
+        tag: "{{ app_tag | string }}"
+        source: pull
+        force_source: true
+
+    - name: Start the container
+      ansible.builtin.include_tasks: container.yml
+      vars:
+        app_run_image: "{{ app_image }}:{{ app_tag }}"
+
+    - name: Wait until the health endpoint answers 200
+      ansible.builtin.uri:
+        url: "http://localhost:{{ app_port }}{{ app_health_path }}"
+        status_code: 200
+        timeout: 5
+      register: app_health
+      until: app_health.status == 200
+      retries: "{{ app_health_retries }}"
+      delay: "{{ app_health_delay }}"
+      when: not ansible_check_mode
+
+    - name: Mark the deploy as successful
+      ansible.builtin.set_fact:
+        app_deploy_ok: true
+
+  rescue:
+    - name: Show why the deploy failed
+      ansible.builtin.debug:
+        msg: "'{{ ansible_failed_task.name }}' failed: {{ ansible_failed_result.msg | default('see the error above') }}"
+
+    - name: Start the previous image again
+      ansible.builtin.include_tasks: container.yml
+      vars:
+        app_run_image: "{{ app_previous_image_id }}"
+      when: app_previous_image_id | length > 0
+
+    - name: Check the rolled-back container is healthy
+      ansible.builtin.uri:
+        url: "http://localhost:{{ app_port }}{{ app_health_path }}"
+        status_code: 200
+        timeout: 5
+      register: app_rollback_health
+      until: app_rollback_health.status == 200
+      retries: "{{ app_health_retries }}"
+      delay: "{{ app_health_delay }}"
+      failed_when: false
+      when: app_previous_image_id | length > 0
+
+    - name: Record that we rolled back
+      ansible.builtin.set_fact:
+        app_rolled_back: "{{ app_previous_image_id | length > 0 }}"
+
+    - name: Stop the play and say what happened
+      ansible.builtin.fail:
+        msg: >-
+          {% if app_rolled_back %}Deploy of {{ app_image }}:{{ app_tag }} failed, so it was ROLLED BACK to
+          {{ app_previous_image_ref }} ({{ app_previous_image_id[7:19] }}), which is
+          {{ 'healthy' if (app_rollback_health.status | default(0)) == 200 else 'NOT healthy either, check docker logs ' + app_container_name }}.
+          {% else %}Deploy of {{ app_image }}:{{ app_tag }} failed and there was no previous container to roll back to.
+          Check: docker logs {{ app_container_name }}{% endif %}
+
+  always:
+    - name: Show the final deploy status
+      ansible.builtin.debug:
+        msg: >-
+          {% if ansible_check_mode %}CHECK MODE: nothing was deployed.
+          {% elif app_deploy_ok %}OK: {{ app_container_name }} runs {{ app_image }}:{{ app_tag }} and
+          http://localhost:{{ app_port }}{{ app_health_path }} returned 200.
+          {% elif app_rolled_back %}ROLLED BACK: {{ app_container_name }} runs {{ app_previous_image_ref }} again.
+          {% else %}FAILED: {{ app_container_name }} is not healthy and nothing could be rolled back.{% endif %}

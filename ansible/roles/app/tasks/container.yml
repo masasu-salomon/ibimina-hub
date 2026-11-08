@@ -1,0 +1,31 @@
+---
+# Used twice by main.yml: for the new image and, on failure, for the previous
+# one (app_run_image is then an image ID). Same settings both times.
+- name: Run the container from {{ app_run_image }}
+  community.docker.docker_container:
+    name: "{{ app_container_name }}"
+    image: "{{ app_run_image }}"
+    state: started
+    restart_policy: unless-stopped
+    published_ports:
+      - "{{ app_port }}:{{ app_container_port }}"
+    env: "{{ app_env | combine(app_secret_env) }}"
+    # Root filesystem is read-only; only /tmp is writable, in memory, and can't run programs.
+    read_only: true
+    tmpfs:
+      - "/tmp:rw,noexec,nosuid,size={{ app_tmpfs_size }}"
+    # The API needs no Linux capabilities at all.
+    cap_drop:
+      - ALL
+    security_opts:
+      - no-new-privileges:true
+    memory: "{{ app_memory }}"
+    memory_swap: "{{ app_memory }}"
+    pids_limit: "{{ app_pids_limit }}"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:{{ app_container_port }}{{ app_health_path }}"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+  no_log: "{{ app_secret_env | length > 0 }}"
