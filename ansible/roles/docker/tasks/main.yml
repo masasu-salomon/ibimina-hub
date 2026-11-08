@@ -1,0 +1,84 @@
+---
+- name: Remove Ubuntu's Docker packages that clash with Docker CE
+  ansible.builtin.apt:
+    name: "{{ docker_conflicting_packages }}"
+    state: absent
+    lock_timeout: 300
+
+- name: Create the apt keyrings folder
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# force: false (the default) means it is only downloaded once.
+- name: Download Docker's apt signing key
+  ansible.builtin.get_url:
+    url: "{{ docker_apt_key_url }}"
+    dest: "{{ docker_apt_key_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+  register: docker_key
+
+- name: Read the fingerprint of the downloaded key
+  ansible.builtin.command: gpg --show-keys --with-colons {{ docker_apt_key_path }}
+  register: docker_key_info
+  changed_when: false
+  check_mode: false
+  # In check mode on a fresh server the key was not really downloaded.
+  when: not (ansible_check_mode and docker_key is changed)
+
+- name: Make sure the key really is Docker's release key
+  ansible.builtin.assert:
+    that:
+      - docker_apt_key_fingerprint in docker_key_info.stdout
+    fail_msg: >-
+      {{ docker_apt_key_path }} does not have the fingerprint {{ docker_apt_key_fingerprint }}.
+      The download may have been tampered with. Delete the file and run again.
+    quiet: true
+  when: docker_key_info is not skipped
+
+- name: Add Docker's official apt repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [arch={{ docker_apt_arch }} signed-by={{ docker_apt_key_path }}]
+      https://download.docker.com/linux/ubuntu {{ ansible_facts['distribution_release'] }} stable
+    filename: docker
+    state: present
+    update_cache: true
+
+- name: Install Docker CE
+  ansible.builtin.apt:
+    name: "{{ docker_packages }}"
+    state: present
+    lock_timeout: 300
+
+- name: Configure the Docker daemon
+  ansible.builtin.template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: "0644"
+    validate: dockerd --validate --config-file=%s
+  notify: Restart docker
+
+- name: Start Docker and enable it at boot
+  ansible.builtin.systemd_service:
+    name: docker
+    state: started
+    enabled: true
+
+- name: Let the admin user run docker without sudo
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: docker
+    append: true
+  loop: "{{ docker_users }}"
+
+# Apply a changed daemon.json now, before the app role starts containers.
+- name: Restart Docker now if its config changed
+  ansible.builtin.meta: flush_handlers
