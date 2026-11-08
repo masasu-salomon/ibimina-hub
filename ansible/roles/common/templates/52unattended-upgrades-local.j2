@@ -1,0 +1,7 @@
+// {{ ansible_managed }}
+// Loaded after Ubuntu's 50unattended-upgrades, which already limits automatic
+// upgrades to the -security pockets. This file only adds cleanup and keeps
+// reboots manual so the app never restarts without warning.
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Automatic-Reboot "{{ common_auto_reboot | bool | lower }}";
