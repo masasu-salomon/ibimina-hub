@@ -47,6 +47,7 @@ List only findings the team has explicitly agreed to accept. For each, include i
 Currently: no risks have final approval. The public-IP finding remains pending Salomon's decision.
 
 ## Previously reported issues
+salomon you can check this!!
 
 - **body-parser `GHSA-27r3-jxmh-p828`:** The team handoff says this was fixed in PR #25. Verify the merged fix before submission.
 - **Dependabot alert #9:** The team handoff describes this as a low-severity alert. Verify its current status and package in GitHub before submission.
@@ -58,6 +59,3 @@ After the security workflow runs, open a throwaway PR that changes the Terraform
 - Demonstration PR: pending
 - Screenshot: pending
 
-## Reporting a vulnerability
-
-Do not disclose credentials or unpatched vulnerabilities in a public issue. Report them privately to the repository owner or maintainers with steps to reproduce and relevant logs. Rotate any exposed credential immediately.
