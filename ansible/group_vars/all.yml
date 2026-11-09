@@ -1,6 +1,6 @@
 ---
 # Values shared by every host. Override any of them on the command line, e.g.
-#   ansible-playbook site.yml -e app_tag=sha-1a2b3c4
+#   ansible-playbook site.yml -e app_tag=<full commit sha>
 
 # Container image built and pushed by CI (public, no login needed).
 app_image: ghcr.io/masasu-salomon/ibimina-hub
