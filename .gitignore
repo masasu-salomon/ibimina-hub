@@ -102,3 +102,12 @@ override.tf.json
 
 # Local Docker overrides
 docker-compose.override.yml
+
+# ---------- Ansible ----------
+# Retry files and local inventories/vars hold real IPs, so they stay local.
+*.retry
+ansible/inventory/hosts.ini
+ansible/inventory/*.local.ini
+ansible/group_vars/*/local.yml
+ansible/host_vars/
+ansible/.ansible/

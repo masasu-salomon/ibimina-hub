@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  role_name: docker
+  author: Phillip Mulindwa
+  description: Docker CE from Docker's signed apt repository with a hardened daemon config.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+dependencies: []

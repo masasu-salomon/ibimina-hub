@@ -1,0 +1,29 @@
+---
+# group_vars/all.yml sets these too and wins; they are here so the role works on its own.
+app_image: ghcr.io/masasu-salomon/ibimina-hub
+app_tag: latest
+app_port: 3000
+
+app_container_name: ibimina-hub
+# Port the API listens on inside the image (PORT in the Dockerfile).
+app_container_port: 3000
+
+# Plain settings, shown in the output.
+app_env:
+  NODE_ENV: production
+# Secret settings (e.g. from ansible-vault). When this is not empty the
+# container task runs with no_log so the values never reach the terminal or logs.
+app_secret_env: {}
+
+# Resource limits: one leaky request can't take the whole VM down.
+app_memory: 256m
+app_pids_limit: 100
+app_tmpfs_size: 64m
+
+app_health_path: /health
+# 12 tries x 5 s = up to one minute for the API to come up.
+app_health_retries: 12
+app_health_delay: 5
+
+# Delete untagged old images before deploying (the running one is kept for rollback).
+app_prune_dangling_images: true

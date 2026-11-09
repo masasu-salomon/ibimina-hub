@@ -1,0 +1,57 @@
+---
+# ---------- SSH ----------
+hardening_ssh_port: 22
+# Only these users may log in over SSH. Defaults to the user Ansible connects as
+# (azureuser, from the Terraform ssh_user output).
+hardening_ssh_allow_users:
+  - "{{ ansible_user | default('azureuser') }}"
+hardening_ssh_max_auth_tries: 3
+hardening_ssh_login_grace_time: 30
+hardening_ssh_client_alive_interval: 300
+hardening_ssh_client_alive_count_max: 2
+
+# ---------- UFW ----------
+# admin_cidrs and app_port come from group_vars/all.yml.
+hardening_ufw_logging: low
+
+# ---------- fail2ban ----------
+hardening_fail2ban_bantime: 1h
+hardening_fail2ban_findtime: 10m
+hardening_fail2ban_maxretry: 5
+
+# ---------- Kernel network settings ----------
+# Written to /etc/sysctl.d/99-hardening.conf. ip_forward is left alone on
+# purpose: Docker needs it to route traffic to containers.
+hardening_sysctl_file: /etc/sysctl.d/99-hardening.conf
+hardening_sysctl_settings:
+  # Drop packets whose source address could not have come in on that interface (anti-spoofing).
+  net.ipv4.conf.all.rp_filter: 1
+  net.ipv4.conf.default.rp_filter: 1
+  # Ignore ICMP redirects so nobody can quietly change our routes.
+  net.ipv4.conf.all.accept_redirects: 0
+  net.ipv4.conf.default.accept_redirects: 0
+  net.ipv4.conf.all.secure_redirects: 0
+  net.ipv4.conf.default.secure_redirects: 0
+  net.ipv6.conf.all.accept_redirects: 0
+  net.ipv6.conf.default.accept_redirects: 0
+  # We are not a router, so never send redirects either.
+  net.ipv4.conf.all.send_redirects: 0
+  net.ipv4.conf.default.send_redirects: 0
+  # Refuse source-routed packets (the sender picks the path, used for spoofing).
+  net.ipv4.conf.all.accept_source_route: 0
+  net.ipv4.conf.default.accept_source_route: 0
+  net.ipv6.conf.all.accept_source_route: 0
+  net.ipv6.conf.default.accept_source_route: 0
+  # SYN flood protection.
+  net.ipv4.tcp_syncookies: 1
+  # Ignore broadcast pings (smurf attacks) and bogus ICMP error replies.
+  net.ipv4.icmp_echo_ignore_broadcasts: 1
+  net.ipv4.icmp_ignore_bogus_error_responses: 1
+  # Log packets with impossible source addresses.
+  net.ipv4.conf.all.log_martians: 1
+  net.ipv4.conf.default.log_martians: 1
+  # Hide kernel addresses and the kernel log from normal users.
+  kernel.kptr_restrict: 2
+  kernel.dmesg_restrict: 1
+  # No core dumps from setuid programs (they can leak secrets).
+  fs.suid_dumpable: 0

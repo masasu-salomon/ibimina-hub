@@ -1,0 +1,19 @@
+---
+common_timezone: "{{ timezone | default('Africa/Kigali') }}"
+
+# Tools every server needs. Kept small: each extra package is extra attack surface.
+common_packages:
+  - ca-certificates
+  - curl
+  - gnupg
+  - htop
+  - python3-requests
+  - unattended-upgrades
+  - apt-listchanges
+
+# How long apt waits for another apt process (e.g. cloud-init on first boot).
+common_apt_lock_timeout: 300
+
+# Security updates only, installed automatically every day.
+# Reboots stay manual so the app never goes down without warning.
+common_auto_reboot: false

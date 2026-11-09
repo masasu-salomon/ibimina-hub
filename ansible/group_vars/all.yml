@@ -1,0 +1,20 @@
+---
+# Values shared by every host. Override any of them on the command line, e.g.
+#   ansible-playbook site.yml -e app_tag=<full commit sha>
+
+# Container image built and pushed by CI (public, no login needed).
+app_image: ghcr.io/masasu-salomon/ibimina-hub
+app_tag: latest
+
+# Port published on the VM. The Terraform inventory overrides this with the
+# app_port output so it always matches the NSG rule.
+app_port: 3000
+
+# Public IPs (CIDR form) allowed to SSH in. Must match admin_cidrs in your
+# terraform tfvars. Left empty on purpose: the hardening role refuses to run
+# until it is set, so the firewall can never lock you out. Set it with
+#   -e '{"admin_cidrs": ["203.0.113.10/32"]}'
+# or in a git-ignored file such as group_vars/app/local.yml.
+admin_cidrs: []
+
+timezone: Africa/Kigali

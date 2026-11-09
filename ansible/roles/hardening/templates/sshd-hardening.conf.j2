@@ -1,0 +1,31 @@
+# {{ ansible_managed }}
+# sshd keeps the FIRST value it reads for most settings. This file is named 10-
+# so it is read before 50-cloud-init.conf and wins over it.
+
+# Key-only login, never as root.
+PermitRootLogin no
+PubkeyAuthentication yes
+AuthenticationMethods publickey
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+
+# Only these users may log in.
+AllowUsers {{ hardening_ssh_allow_users | join(' ') }}
+
+# Slow down guessing and drop half-open logins quickly.
+MaxAuthTries {{ hardening_ssh_max_auth_tries }}
+LoginGraceTime {{ hardening_ssh_login_grace_time }}
+
+# Close dead sessions: {{ hardening_ssh_client_alive_interval }}s x {{ hardening_ssh_client_alive_count_max }} missed replies.
+ClientAliveInterval {{ hardening_ssh_client_alive_interval }}
+ClientAliveCountMax {{ hardening_ssh_client_alive_count_max }}
+
+# Nothing on this server needs forwarding, so turn it all off.
+X11Forwarding no
+AllowAgentForwarding no
+AllowTcpForwarding no
+PermitTunnel no
+
+# Log key fingerprints of every login (useful for audits and fail2ban).
+LogLevel VERBOSE

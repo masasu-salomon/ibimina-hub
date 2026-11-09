@@ -1,0 +1,20 @@
+# {{ ansible_managed }}
+# Local overrides for fail2ban. jail.conf stays untouched so package updates
+# never conflict with our settings.
+
+[DEFAULT]
+bantime  = {{ hardening_fail2ban_bantime }}
+findtime = {{ hardening_fail2ban_findtime }}
+maxretry = {{ hardening_fail2ban_maxretry }}
+# Repeat offenders get longer bans each time.
+bantime.increment = true
+# Bans are written as UFW rules, so they show up in `ufw status`.
+banaction = ufw
+# Never ban the admins' own addresses.
+ignoreip = 127.0.0.1/8 ::1 {{ admin_cidrs | join(' ') }}
+
+[sshd]
+enabled = true
+port    = {{ hardening_ssh_port }}
+# aggressive also catches scans that never get as far as a password prompt.
+mode    = aggressive

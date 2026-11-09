@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: app
+  author: Phillip Mulindwa
+  description: Deploys the ibimina-hub container with a health check and automatic rollback.
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+# Needs Docker, which the docker role installs. It runs before this role in
+# site.yml; it is not a meta dependency so `--tags app` stays a quick redeploy.
+dependencies: []

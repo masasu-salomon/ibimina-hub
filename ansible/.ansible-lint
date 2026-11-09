@@ -1,0 +1,6 @@
+---
+# Run from inside ansible/:  ansible-lint
+profile: production
+exclude_paths:
+  - .ansible/
+  - inventory/

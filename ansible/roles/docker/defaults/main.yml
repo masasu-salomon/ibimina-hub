@@ -1,0 +1,41 @@
+---
+# Users added to the docker group (can run docker without sudo).
+docker_users:
+  - "{{ ansible_user | default('azureuser') }}"
+
+docker_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-buildx-plugin
+  - docker-compose-plugin
+
+# Ubuntu's own packages that clash with Docker CE (from Docker's install guide).
+docker_conflicting_packages:
+  - docker.io
+  - docker-doc
+  - docker-compose
+  - docker-compose-v2
+  - podman-docker
+  - containerd
+  - runc
+
+docker_apt_key_url: https://download.docker.com/linux/ubuntu/gpg
+docker_apt_key_path: /etc/apt/keyrings/docker.asc
+# Docker's published release key fingerprint. The downloaded key must match it.
+docker_apt_key_fingerprint: 9DC858229FC7DD38854AE2D88D81803C0EBFCD88
+docker_apt_arch: "{{ 'arm64' if ansible_facts['architecture'] == 'aarch64' else 'amd64' }}"
+
+# Rendered to /etc/docker/daemon.json.
+docker_daemon_options:
+  # Rotate container logs so they can't fill the disk: 3 files x 10 MB per container.
+  log-driver: json-file
+  log-opts:
+    max-size: 10m
+    max-file: "3"
+  # Processes in containers can never gain more privileges (blocks setuid tricks).
+  no-new-privileges: true
+  # Containers keep running while the Docker daemon restarts or upgrades.
+  live-restore: true
+  # Containers on the default bridge can't talk to each other unless linked.
+  icc: false
