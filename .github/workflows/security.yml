@@ -1,0 +1,128 @@
+name: Security Scans
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  dependency-scan:
+    name: Dependency scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+  container-scan:
+    name: Container scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Build image for scanning
+        run: docker build -t ibimina-hub:${{ github.sha }} .
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: ibimina-hub:${{ github.sha }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Upload Trivy results
+        if: ${{ always() && hashFiles('trivy-results.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-container
+
+  iac-scan:
+    name: IaC scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Scan Terraform with Checkov
+        id: checkov_terraform
+        continue-on-error: true
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: terraform/
+          framework: terraform
+          output_format: cli,sarif
+          output_file_path: console,terraform-results.sarif
+          soft_fail: false
+
+      - name: Scan Dockerfile with Checkov
+        id: checkov_dockerfile
+        continue-on-error: true
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          file: Dockerfile
+          framework: dockerfile
+          output_format: cli,sarif
+          output_file_path: console,dockerfile-results.sarif
+          soft_fail: false
+
+      - name: Upload Terraform results
+        if: ${{ always() && hashFiles('terraform-results.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: terraform-results.sarif
+          category: checkov-terraform
+
+      - name: Upload Dockerfile results
+        if: ${{ always() && hashFiles('dockerfile-results.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: dockerfile-results.sarif
+          category: checkov-dockerfile
+
+      - name: Fail if either Checkov scan found a problem
+        if: ${{ always() }}
+        env:
+          TERRAFORM_RESULT: ${{ steps.checkov_terraform.outcome }}
+          DOCKERFILE_RESULT: ${{ steps.checkov_dockerfile.outcome }}
+        run: |
+          if [ "$TERRAFORM_RESULT" != "success" ] || [ "$DOCKERFILE_RESULT" != "success" ]; then
+            echo "Checkov found one or more unaccepted IaC findings."
+            exit 1
+          fi
+
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out full Git history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Scan Git history with Gitleaks
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
