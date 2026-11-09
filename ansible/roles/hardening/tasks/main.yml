@@ -50,6 +50,19 @@
   notify: Restart ssh
 
 # ---------- Host firewall (UFW) ----------
+# UFW re-applies /etc/ufw/sysctl.conf every time it reloads (e.g. when the
+# default policy is set), and that file turns log_martians off. Make it agree
+# with our sysctl hardening, or every run flips the value back and forth and
+# the play is never changed=0.
+- name: Keep UFW from turning off martian packet logging
+  ansible.builtin.lineinfile:
+    path: /etc/ufw/sysctl.conf
+    regexp: '^#?\s*net/ipv4/conf/{{ item }}/log_martians\s*='
+    line: "net/ipv4/conf/{{ item }}/log_martians=1"
+  loop:
+    - all
+    - default
+
 # SSH is allowed BEFORE the firewall is switched on, so the session survives.
 - name: Allow SSH only from the admin CIDRs
   community.general.ufw:

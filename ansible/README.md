@@ -132,7 +132,7 @@ ansible-playbook site.yml --check --diff         # dry run: what would change (a
 ansible-playbook site.yml                        # full run
 ansible-playbook site.yml                        # run again: should end with changed=0
 
-ansible-playbook site.yml --tags app -e app_tag=sha-1a2b3c4   # redeploy one image tag only
+ansible-playbook site.yml --tags app -e app_tag=<commit sha>   # redeploy one image tag only
 ansible-playbook site.yml --tags hardening                    # re-apply only the security settings
 ```
 
@@ -246,7 +246,7 @@ UFW, fail2ban and the NSG all apply.
   The NSG only lets admin IPs reach SSH, which reduces the man-in-the-middle risk.
 - Being in the `docker` group is effectively root on the host. Only `azureuser` (key-only, admin IPs only)
   is added.
-- `app_tag: latest` is the default for convenience. Pass a commit tag (`-e app_tag=sha-...`) for
+- `app_tag: latest` is the default for convenience. Pass a commit tag (`-e app_tag=<full commit sha>`, the tag the Release workflow pushes) for
   repeatable deploys and easy rollbacks.
 
 ## Linting
@@ -260,25 +260,47 @@ Both pass with 0 failures and 0 warnings.
 
 ## Run evidence
 
-Paste the recap lines from a real run against the VM here.
+Real runs against the Azure VM from `terraform/` (Standard_B2ats_v2, Ubuntu 22.04, `southafricanorth`)
+on 9 Nov 2026, using the dynamic inventory.
 
-**Run 1 (fresh VM):**
+**Run 1 (fresh VM):** installs and configures everything.
 
 ```
 PLAY RECAP *********************************************************************
-ibimina-hub : ok=__  changed=__  unreachable=0  failed=0  skipped=__  rescued=0  ignored=0
+ibimina-hub                : ok=49   changed=25   unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
 ```
+
+The first second run showed `changed=1`. The "Deny incoming" UFW task reloads UFW, which reapplies
+`/etc/ufw/sysctl.conf` and turns `net.ipv4.conf.all.log_martians` back off, and then our sysctl
+task turned it on again, on every run. The hardening role now sets `log_martians=1` in UFW's own
+sysctl file too. The first run with that fix applied it (`changed=1`), and every run after that
+is clean:
 
 **Run 2 (same command again, proves idempotency):**
 
 ```
 PLAY RECAP *********************************************************************
-ibimina-hub : ok=__  changed=0  unreachable=0  failed=0  skipped=__  rescued=0  ignored=0
+ibimina-hub                : ok=45   changed=0    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
 ```
 
 **Health check:**
 
 ```
-$ curl http://<VM_PUBLIC_IP>:3000/health
-<paste output>
+$ curl http://4.221.226.56:3000/health
+{"status":"ok","service":"ibimina-hub","version":"0.1.0","uptime":613.79905262}
 ```
+
+**Rollback on the VM** (`--tags app -e app_tag=does-not-exist`):
+
+```
+Deploy of ghcr.io/masasu-salomon/ibimina-hub:does-not-exist failed, so it was ROLLED BACK to
+ghcr.io/masasu-salomon/ibimina-hub:latest (99972c1fa4e8), which is healthy.
+ibimina-hub                : ok=13   changed=1    unreachable=0    failed=1    skipped=0    rescued=1    ignored=0
+```
+
+`/health` kept answering `{"status":"ok"}` after the rollback.
+
+**Checked on the server afterwards:** `ufw status` shows 22/tcp only from the admin IP and 3000/tcp open;
+`sshd -T` gives `passwordauthentication no`, `permitrootlogin no`, `maxauthtries 3`, `allowusers azureuser`;
+a password login attempt gets `Permission denied (publickey)`; the container is `healthy`, runs as `node`
+with `ReadonlyRootfs=true` and `CapDrop=[ALL]`; fail2ban is active.
