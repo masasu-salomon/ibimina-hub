@@ -12,8 +12,8 @@ resource "azurerm_public_ip" "this" {
   sku               = "Standard"
   tags              = var.tags
 }
-
 resource "azurerm_network_interface" "this" {
+  #checkov:skip=CKV_AZURE_119:Public IP is required for API and Ansible access; SSH remains restricted to approved /32 addresses (CKV_AZURE_10).
   name                = "${var.name_prefix}-nic"
   location            = var.location
   resource_group_name = var.resource_group_name
