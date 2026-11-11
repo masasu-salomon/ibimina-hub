@@ -34,9 +34,12 @@ LABEL org.opencontainers.image.title="ibimina-hub" \
 # NODE_ENV=production makes Express skip some dev-only behaviour (e.g. stack
 # traces in error pages). PORT is read by src/config and can be overridden
 # with -e PORT=... or from docker-compose.
+# Upgrade Alpine packages and remove bundled package managers not needed by the runtime image.
+RUN apk upgrade --no-cache && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg
+
+# NODE_ENV=production makes Express use production behavior. PORT is read by src/config.
 ENV NODE_ENV=production \
     PORT=3000
-
 WORKDIR /app
 
 # Bring over only the installed packages from the deps stage, then the app.
