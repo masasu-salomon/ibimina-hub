@@ -39,8 +39,9 @@ Trivy ignores vulnerabilities without an available fix. Exceptions must be speci
 - **`CKV_AZURE_119`:** The VM network interface uses a public IP because the API and Ansible need public reachability. The SSH rule is restricted to approved `/32` addresses, and `CKV_AZURE_10` passed. The exception is scoped to the network interface using an inline Checkov skip comment inside its resource block.
 
 ## Blocked pull request demonstration
+The demo PR changed the SSH rule source to `*`. The IaC scan failed on
+`CKV_AZURE_10`, as expected. The demo PR was closed without merging.
 
-
-
-- Demonstration PR: pending
-- Screenshot: pending
+- Demonstration PR: https://github.com/masasu-salomon/ibimina-hub/pull/34. -closed without merging
+- Screenshot 1: ![alt text](<Screenshot 2026-11-11 at 16.12.47.png>)
+- Screenshot 2:![alt text](<Screenshot 2026-11-11 at 16.08.25.png>)
