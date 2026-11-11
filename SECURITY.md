@@ -40,7 +40,25 @@ Trivy ignores vulnerabilities without an available fix. Exceptions must be speci
 
 ## Blocked pull request demonstration
 
+To prove the scans block insecure changes, PR [#34](https://github.com/masasu-salomon/ibimina-hub/pull/34)
+changed the SSH rule in `terraform/modules/security/main.tf` to allow any source:
 
+```diff
+-  source_address_prefixes     = var.admin_cidrs
++  source_address_prefixes     = ["*"]
+```
 
-- Demonstration PR: pending
-- Screenshot: pending
+Result ([IaC scan run](https://github.com/masasu-salomon/ibimina-hub/actions/runs/43030205631/job/130554992464)):
+
+```text
+Check: CKV_AZURE_10: "Ensure that SSH access is restricted from the internet"
+        FAILED for resource: module.security.azurerm_network_security_rule.ssh_admin
+Passed checks: 24, Failed checks: 1, Skipped checks: 1
+```
+
+`IaC scan` is a required check on `main`, so GitHub marked the PR as blocked and it
+could not be merged. The other checks (tests, Terraform validate, Docker build,
+dependency, container and secret scans) passed, which shows the block came from the
+security scan alone. The PR was closed without merging.
+
+![PR #34 blocked by the IaC scan](docs/images/blocked-pr-34.png)
