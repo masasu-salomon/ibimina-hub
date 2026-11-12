@@ -62,3 +62,5 @@ dependency, container and secret scans) passed, which shows the block came from 
 security scan alone. The PR was closed without merging.
 
 ![PR #34 blocked by the IaC scan](docs/images/blocked-pr-34.png)
+
+![IaC scan annotation: CKV_AZURE_10 failed](docs/images/blocked-pr-34-annotations.png)
