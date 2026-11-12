@@ -58,7 +58,9 @@ behind a small collection interface so that persistent storage can be introduced
 - **Database**: In-memory store (`src/common/store.js`), designed for later PostgreSQL support
 - **Testing**: Jest and Supertest
 - **Linting**: ESLint 9
-- **Other**: Docker, Docker Compose and GitHub Actions CI
+- **Infrastructure**: Terraform (Azure), Ansible
+- **Security**: npm audit, Trivy, Checkov, Gitleaks
+- **Other**: Docker, Docker Compose, GitHub Actions CI and GHCR
 
 ## Getting Started
 
@@ -198,8 +200,55 @@ The package is public, so pulling needs no login:
 
 ```bash
 docker run -p 3000:3000 ghcr.io/masasu-salomon/ibimina-hub:latest
-``` Branch protection on `main` requires the `Test` and
-`Docker build` checks to pass, plus one approving review, before a pull request can merge.
+```
+
+[`.github/workflows/security.yml`](.github/workflows/security.yml) runs four security
+scans on every pull request. See [Security scanning](#security-scanning-devsecops) below.
+
+Branch protection on `main` requires `Test`, `Docker build`, `Terraform` and the four
+security scans to pass, plus one approving review, before a pull request can merge.
+
+## Infrastructure and Deployment
+
+The app runs on an Azure VM built and configured entirely from code:
+
+```text
+terraform/  ->  network, firewall (NSG) and an Ubuntu VM        (provision)
+ansible/    ->  Docker, SSH/firewall hardening, app container  (configure + deploy)
+```
+
+| Step | Tool | Guide |
+|---|---|---|
+| 1. Create the VNet, subnet, NSG and VM | Terraform (modules: `network`, `security`, `compute`) | [terraform/README.md](terraform/README.md) |
+| 2. Harden the server and deploy the image from GHCR | Ansible (roles: `common`, `hardening`, `docker`, `app`; dynamic inventory from Terraform outputs) | [ansible/README.md](ansible/README.md) |
+
+Quick version:
+
+```bash
+cd terraform/envs/dev
+terraform init && terraform apply -var-file=dev.tfvars
+
+cd ../../../ansible
+ansible-galaxy collection install -r requirements.yml
+ansible-playbook site.yml -e '{"admin_cidrs": ["<your IP>/32"]}'
+curl http://<public_ip>:3000/health
+```
+
+Ansible reads the server IP from `terraform output`, so nothing is copied by hand.
+The playbook is idempotent (a second run reports `changed=0`) and rolls back to the
+previous image if the new container fails its health check.
+
+## Security Scanning (DevSecOps)
+
+| Scan | Tool | Fails the PR on |
+|---|---|---|
+| Dependency | `npm audit --omit=dev` | High or critical vulnerability |
+| Container image | Trivy | Fixable high or critical vulnerability |
+| Infrastructure as code | Checkov (Terraform and Dockerfile) | Any failed check not documented as accepted |
+| Secrets | Gitleaks (full Git history) | Any secret found |
+
+Results are uploaded to the GitHub **Security** tab. Findings, fixes and accepted
+risks are documented in [SECURITY.md](SECURITY.md).
 
 ## Project Structure
 
@@ -247,12 +296,13 @@ All request and response bodies are JSON. Amounts are whole numbers in RWF.
 - [Project Board](https://github.com/users/masasu-salomon/projects/1)
 - [Team Participation Sheet](https://docs.google.com/spreadsheets/d/1hHUFW2yBKPwx3Qw9GdPJRy3R-AMYLjvlHlPbG7LdXVs/edit?gid=0#gid=0)
 - [Repository Issues](https://github.com/masasu-salomon/ibimina-hub/issues)
-- [CI workflow](.github/workflows/ci.yml)
+- [CI workflow](.github/workflows/ci.yml) · [Security workflow](.github/workflows/security.yml) · [SECURITY.md](SECURITY.md)
 
 ## DevOps Practices
 
 - Pull requests and at least one review are required before merging to `main`.
-- Required CI checks include the Jest test suite and Docker build.
+- Required checks: tests, Docker build, Terraform validation and four security scans.
+- Infrastructure is defined in code (`terraform/`, `ansible/`); nothing is set up by hand.
 - Branches must be up to date and review conversations must be resolved.
 - `.gitignore` excludes secrets, dependencies, build output, logs and IDE files.
 - `.env.example` documents configuration without committing real secrets.
