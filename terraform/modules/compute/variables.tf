@@ -29,13 +29,25 @@ variable "admin_username" {
 }
 
 variable "ssh_public_keys" {
-  description = "SSH public keys allowed to log in as admin_username, one per team member (RSA; Azure rejects some other types)."
+  description = "SSH public keys allowed to log in as admin_username, one per team member and one for CD (RSA; Azure rejects some other types)."
   type        = list(string)
 
   validation {
     condition     = length(var.ssh_public_keys) > 0 && alltrue([for k in var.ssh_public_keys : startswith(trimspace(k), "ssh-rsa ")])
     error_message = "ssh_public_keys needs at least one OpenSSH RSA public key (starts with ssh-rsa)."
   }
+}
+
+variable "public_ip_enabled" {
+  description = "Give the VM its own static public IP. Only the bastion should."
+  type        = bool
+  default     = false
+}
+
+variable "identity_enabled" {
+  description = "Give the VM a system-assigned managed identity."
+  type        = bool
+  default     = false
 }
 
 variable "os_disk_type" {

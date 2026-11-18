@@ -9,12 +9,32 @@ variable "location" {
 }
 
 variable "resource_group_name" {
-  description = "Resource group that holds the NSG."
+  description = "Resource group that holds the NSGs."
   type        = string
 }
 
-variable "subnet_id" {
-  description = "Subnet the NSG is attached to."
+variable "public_subnet_id" {
+  description = "Bastion subnet the public NSG is attached to."
+  type        = string
+}
+
+variable "private_subnet_id" {
+  description = "App subnet the private NSG is attached to."
+  type        = string
+}
+
+variable "database_subnet_id" {
+  description = "Database subnet the database NSG is attached to."
+  type        = string
+}
+
+variable "public_subnet_cidr" {
+  description = "CIDR of the bastion subnet; the only source allowed to SSH into the app subnet."
+  type        = string
+}
+
+variable "private_subnet_cidr" {
+  description = "CIDR of the app subnet; the only source allowed to reach Postgres."
   type        = string
 }
 
@@ -24,7 +44,7 @@ variable "app_port" {
 }
 
 variable "admin_cidrs" {
-  description = "CIDRs allowed to SSH in, e.g. [\"41.186.0.168/32\"]."
+  description = "CIDRs allowed to SSH into the bastion, e.g. [\"41.186.0.168/32\"]."
   type        = list(string)
 
   validation {
@@ -34,7 +54,7 @@ variable "admin_cidrs" {
 }
 
 variable "app_allowed_cidrs" {
-  description = "CIDRs allowed to reach the API port."
+  description = "CIDRs allowed to reach the API port (through the load balancer)."
   type        = list(string)
 
   validation {
