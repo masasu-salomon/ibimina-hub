@@ -77,7 +77,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
 
       - name: Install Ansible and ansible-lint
         run: pip install "ansible-core>=2.17,<2.18" "ansible-lint>=24,<26"
