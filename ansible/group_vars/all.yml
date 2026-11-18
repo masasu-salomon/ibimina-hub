@@ -2,8 +2,10 @@
 # Values shared by every host. Override any of them on the command line, e.g.
 #   ansible-playbook site.yml -e app_tag=<full commit sha>
 
-# Container image built and pushed by CI (public, no login needed).
-app_image: ghcr.io/masasu-salomon/ibimina-hub
+# Image built, scanned and pushed by CD to the private registry (ACR).
+# The Terraform inventory sets app_image to <acr_login_server>/ibimina-hub;
+# CD sets app_tag to the commit SHA it just pushed.
+app_image: ""
 app_tag: latest
 
 # Port published on the VM. The Terraform inventory overrides this with the

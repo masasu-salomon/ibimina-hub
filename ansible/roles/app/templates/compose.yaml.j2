@@ -1,0 +1,34 @@
+# {{ ansible_managed }}
+# Deployed by Ansible (roles/app). Edit the role, not this file.
+name: {{ app_compose_project }}
+
+services:
+  api:
+    image: "{{ app_run_image }}"
+    container_name: {{ app_container_name }}
+    restart: unless-stopped
+    ports:
+      - "{{ app_port }}:{{ app_container_port }}"
+    env_file:
+      - .env
+    labels:
+      # Changes when .env changes, so compose recreates the container.
+      org.ibimina-hub.env-checksum: "{{ app_env_checksum }}"
+    # Root filesystem is read-only; only /tmp is writable, in memory, and can't run programs.
+    read_only: true
+    tmpfs:
+      - "/tmp:rw,noexec,nosuid,size={{ app_tmpfs_size }}"
+    # The API needs no Linux capabilities at all.
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
+    mem_limit: {{ app_memory }}
+    memswap_limit: {{ app_memory }}
+    pids_limit: {{ app_pids_limit }}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:{{ app_container_port }}{{ app_health_path }}"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s

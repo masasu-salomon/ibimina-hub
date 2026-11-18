@@ -9,9 +9,16 @@ hardening_ssh_max_auth_tries: 3
 hardening_ssh_login_grace_time: 30
 hardening_ssh_client_alive_interval: 300
 hardening_ssh_client_alive_count_max: 2
+# host:port pairs this host may forward SSH to. Empty = no TCP forwarding.
+# Only the bastion sets it (group_vars/bastion.yml).
+hardening_ssh_jump_targets: []
 
 # ---------- UFW ----------
-# admin_cidrs and app_port come from group_vars/all.yml.
+# admin_cidrs and app_port come from group_vars/all.yml or the inventory.
+# Where SSH is allowed from. The bastion overrides this with [any] (group_vars/bastion.yml).
+hardening_ssh_sources: "{{ admin_cidrs }}"
+# Open the app port in UFW (the app VM yes, the bastion no).
+hardening_allow_app_port: true
 hardening_ufw_logging: low
 
 # ---------- fail2ban ----------

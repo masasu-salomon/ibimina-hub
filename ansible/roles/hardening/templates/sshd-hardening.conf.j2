@@ -21,11 +21,18 @@ LoginGraceTime {{ hardening_ssh_login_grace_time }}
 ClientAliveInterval {{ hardening_ssh_client_alive_interval }}
 ClientAliveCountMax {{ hardening_ssh_client_alive_count_max }}
 
-# Nothing on this server needs forwarding, so turn it all off.
+# Forwarding is off, except on the bastion: a jumpbox exists to forward SSH
+# (ssh -J / ProxyCommand uses a TCP forward). Even there, only to port 22
+# of the private subnets, never agent, X11 or tunnel forwarding.
 X11Forwarding no
 AllowAgentForwarding no
-AllowTcpForwarding no
 PermitTunnel no
+{% if hardening_ssh_jump_targets | length > 0 %}
+AllowTcpForwarding yes
+PermitOpen {{ hardening_ssh_jump_targets | join(' ') }}
+{% else %}
+AllowTcpForwarding no
+{% endif %}
 
 # Log key fingerprints of every login (useful for audits and fail2ban).
 LogLevel VERBOSE
