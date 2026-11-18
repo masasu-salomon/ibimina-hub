@@ -37,9 +37,14 @@ LABEL org.opencontainers.image.title="ibimina-hub" \
 # Upgrade Alpine packages and remove bundled package managers not needed by the runtime image.
 RUN apk upgrade --no-cache && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg
 
+# The commit the image was built from (CD passes --build-arg GIT_SHA=<sha>).
+# /health reports it, so anyone can see which build is live.
+ARG GIT_SHA=unknown
+
 # NODE_ENV=production makes Express use production behavior. PORT is read by src/config.
 ENV NODE_ENV=production \
-    PORT=3000
+    PORT=3000 \
+    GIT_SHA=${GIT_SHA}
 WORKDIR /app
 
 # Bring over only the installed packages from the deps stage, then the app.
