@@ -1,20 +1,28 @@
 # Copy to dev.tfvars (Git ignores it) and fill in your own values:
 #   cp dev.tfvars.example dev.tfvars
+# CD reads the same file from the TF_VARS_DEV secret to run `terraform plan`.
 
 environment = "dev"
 location    = "southafricanorth"
 
 # Standard_B1s is blocked on some student subscriptions. Check yours:
 #   az vm list-skus --location southafricanorth --size Standard_B --all -o table
-vm_size = "Standard_B2ats_v2"
+vm_size         = "Standard_B2ats_v2"
+bastion_vm_size = "Standard_B2ats_v2"
 
-ssh_public_key_path = "~/.ssh/id_rsa.pub"
+# Your public key, pasted in (works on a laptop and in CI). Or use
+# ssh_public_key_path = "~/.ssh/id_rsa.pub" on a laptop only.
+ssh_public_key = "ssh-rsa AAAA... you"
 
-# Teammates' public keys (the contents of their .pub files), so they can SSH in too.
+# Teammates' public keys and the CD deploy key (contents of their .pub files).
 extra_ssh_public_keys = [
   # "ssh-rsa AAAA... phillip",
+  # "ssh-rsa AAAA... ibimina-hub-cd",
 ]
 
-# Public IPs allowed to SSH in, one per team member, each with /32.
-# Find yours with: curl ifconfig.me
+# Public IPs allowed to SSH into the bastion, one per team member, each /32.
+# Find yours with: curl -4 ifconfig.me
 admin_cidrs = ["203.0.113.10/32"]
+
+# Object ID of the CD service principal: terraform -chdir=../../bootstrap output cd_principal_object_id
+cd_principal_object_id = "00000000-0000-0000-0000-000000000000"

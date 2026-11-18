@@ -1,31 +1,47 @@
-# Ansible: configure the server and deploy Ibimina Hub
+# Ansible: configure the servers and deploy Ibimina Hub
 
-Terraform (`terraform/`) creates an empty Ubuntu 22.04 VM on Azure. Ansible then
-takes that VM from "empty Linux box" to "hardened server running the API":
+Terraform (`terraform/`) creates two empty Ubuntu 22.04 VMs on Azure: a **bastion** in the
+public subnet and the **app VM** in the private subnet (no public IP). Ansible reaches the
+app VM *through* the bastion and takes both from "empty Linux box" to "hardened server":
+
+| Play | Hosts | Roles |
+|---|---|---|
+| 1 | `bastion` | **common**, **hardening** (SSH forwarding allowed only to the app VM's port 22) |
+| 2 | `app` | **common**, **hardening**, **docker** (Docker CE + Compose plugin), **app** |
 
 1. **common** installs base packages, turns on automatic security updates and sets the time zone.
 2. **hardening** locks down SSH, turns on the UFW firewall and fail2ban, and applies kernel network hardening.
-3. **docker** installs Docker CE from Docker's signed apt repo with a hardened daemon config.
-4. **app** pulls `ghcr.io/masasu-salomon/ibimina-hub:<tag>`, runs it locked down, checks `/health`
-   and rolls back to the previous image if the check fails.
+3. **docker** installs Docker CE and the `docker compose` plugin from Docker's signed apt repo, with a hardened daemon config.
+4. **app** logs in to the private registry (ACR) with the VM's managed identity, writes
+   `/opt/ibimina-hub/compose.yaml` and a root-only `.env` (with `DATABASE_URL`), runs
+   `docker compose up -d` with `pull: always`, waits for `/health`, and rolls back to the
+   previous image if the check fails.
 
-The playbook is **idempotent**: a second run reports `changed=0`.
+**The task that matters most for serving traffic** is the app role's
+`Start the service with docker compose up -d` plus the `/health` wait after it: the load
+balancer only sends users to the VM once `/health` answers 200, and the play only reports
+success once it does.
+
+The playbook is **idempotent**: a second run reports `changed=0` on both hosts. CD runs
+exactly this playbook on every merge to `main` (`-e app_tag=<commit sha>`).
 
 ```
 ansible/
 ├── ansible.cfg                  settings (inventory folder, roles path, pipelining)
 ├── requirements.yml             collections: community.docker, community.general, ansible.posix
-├── site.yml                     the playbook: hosts "app", runs the 4 roles
+├── site.yml                     2 plays: bastion (2 roles), app (4 roles)
 ├── .ansible-lint                lint config (production profile)
-├── group_vars/all.yml           app_image, app_tag, app_port, admin_cidrs, timezone
+├── group_vars/
+│   ├── all.yml                  app_image, app_tag, app_port, admin_cidrs, timezone
+│   └── bastion.yml              SSH gate = NSG, forwarding only to the app VM
 ├── inventory/
-│   ├── terraform_inventory.py   dynamic inventory from `terraform output -json`
+│   ├── terraform_inventory.py   dynamic inventory from `terraform output -json` (remote state)
 │   └── hosts.example.ini        static fallback (placeholders only)
 └── roles/
     ├── common/      tasks, handlers, defaults, templates, meta
     ├── hardening/   tasks, handlers, defaults, templates, meta
     ├── docker/      tasks, handlers, defaults, templates, meta
-    └── app/         tasks (main.yml + container.yml), defaults, meta
+    └── app/         tasks (main, registry, compose), templates (compose.yaml, app.env), defaults, meta
 ```
 
 ## Prerequisites
@@ -67,19 +83,14 @@ export ANSIBLE_CONFIG=$PWD/ansible.cfg
 ansible-galaxy collection install -r requirements.yml
 ```
 
-Set **admin_cidrs** to your public IP (the same value as `admin_cidrs` in your Terraform
-tfvars). It is empty on purpose and the hardening role refuses to run without it, so
-the firewall can never lock you out:
+You no longer pass `admin_cidrs` by hand: the inventory takes the bastion's list from
+the Terraform `admin_cidrs` output, and gives the app VM the bastion subnet
+(`10.20.0.0/24`), so UFW on the app VM only accepts SSH from the bastion.
+
+Point Ansible at your private key (the one whose public key is in your tfvars):
 
 ```bash
-curl -s ifconfig.me          # e.g. 203.0.113.10  ->  use "203.0.113.10/32"
-```
-
-Pass it with `-e` each time, or put it in a git-ignored file:
-
-```bash
-mkdir -p group_vars/app
-printf 'admin_cidrs:\n  - 203.0.113.10/32\n' > group_vars/app/local.yml   # ignored by git
+export ANSIBLE_PRIVATE_KEY_FILE=~/.ssh/<your key>    # used for the bastion hop too
 ```
 
 ## Inventory
@@ -87,27 +98,22 @@ printf 'admin_cidrs:\n  - 203.0.113.10/32\n' > group_vars/app/local.yml   # igno
 ### Dynamic (default): read straight from Terraform
 
 `ansible.cfg` points at the `inventory/` folder. Ansible runs every executable in it, so it
-runs `terraform_inventory.py`, which:
+runs `terraform_inventory.py`, which runs `terraform output -json` in `terraform/envs/dev`
+(change with `TF_DIR=...`). State is remote (Azure storage), so this works on any machine
+that ran `terraform init` there with `az login`, and in CD.
 
-1. runs `terraform output -json` in `terraform/envs/dev` (change with `TF_DIR=...`),
-2. puts one host, `ibimina-hub`, in the group **app** with
-   `ansible_host` = `public_ip` output, `ansible_user` = `ssh_user` output and
-   `app_port` = `app_port` output (so Ansible and the NSG rule always agree),
-3. supports `--list` and `--host <name>` like any Ansible inventory script.
+| Group | Host | Variables |
+|---|---|---|
+| `bastion` | `ibimina-hub-bastion` | `ansible_host` = `bastion_public_ip`, `admin_cidrs` = `admin_cidrs` output |
+| `app` | `ibimina-hub` | `ansible_host` = `app_private_ip`, `ansible_ssh_common_args` = ProxyCommand through the bastion, `app_image` = `<acr_login_server>/ibimina-hub`, `app_acr_login_server`, `app_azure_tenant_id`, `app_database_url` (sensitive), `app_port` |
 
 If Terraform isn't installed, the folder is wrong or there is no state, it prints the reason
-to stderr and returns an **empty inventory** instead of crashing. Ansible shows that message
-with an `[ERROR]` prefix, but nothing has failed; it just means "no hosts from Terraform".
+to stderr and returns an **empty inventory** instead of crashing.
 
 ```bash
-ansible-inventory --graph                      # should show @app -> ibimina-hub
-python3 inventory/terraform_inventory.py --list
-TF_DIR=/path/to/terraform/envs/dev ansible-inventory --graph
-TF_BIN=terraform.exe ansible-inventory --graph # WSL, when apply was run from PowerShell
+ansible-inventory --graph                      # @bastion -> ibimina-hub-bastion, @app -> ibimina-hub
+ansible all -m ansible.builtin.ping            # both answer pong (the app VM via the bastion)
 ```
-
-Terraform state stays on the machine that ran `apply`. On that machine run `terraform init` once
-in `terraform/envs/dev` (in the same environment you run Ansible from).
 
 ### Static fallback
 
@@ -115,7 +121,7 @@ Everyone else (or when Terraform is not available) uses the static file:
 
 ```bash
 cp inventory/hosts.example.ini inventory/hosts.ini   # hosts.ini is git-ignored
-# replace <VM_PUBLIC_IP> and <SSH_USER> (ask whoever ran terraform apply)
+# fill in the placeholders (ask whoever ran terraform apply)
 ansible-playbook -i inventory/hosts.ini site.yml
 ```
 
@@ -125,7 +131,7 @@ placeholders is never used by accident.
 ## Running it
 
 ```bash
-ansible app -m ansible.builtin.ping              # can we log in?
+ansible all -m ansible.builtin.ping              # can we log in (bastion, and app through it)?
 
 ansible-playbook site.yml --check --diff         # dry run: what would change (after the first real run;
                                                  # on a brand-new VM Docker isn't there yet, so later tasks can't be previewed)
@@ -179,25 +185,31 @@ curl http://<VM_PUBLIC_IP>:3000/health           # {"status":"ok",...}
 - Adds `azureuser` to the `docker` group (`append: true`, so other groups are kept).
 
 ### app
+- Writes `/opt/ibimina-hub/.env` (root, `0600`, `no_log`): `NODE_ENV`, `PORT`, `LOG_LEVEL` and
+  `DATABASE_URL` from the Terraform `database_url` output.
+- **Registry login without a password** (`tasks/registry.yml`): asks the Azure metadata endpoint
+  (`169.254.169.254`) for a token for the VM's managed identity, exchanges it at
+  `https://<acr>/oauth2/exchange` for an ACR refresh token, and `docker login`s with it. Retries
+  for a few minutes, because a new VM's AcrPull role takes time to propagate. All `no_log`.
 - Reads the running container with `docker_container_info` and saves its **image ID** as the
   previous image (the ID, not the tag: after pulling, `latest` points at the new image).
 - Removes dangling images (the running one is never dangling, so rollback still works).
-- Pulls `{{ app_image }}:{{ app_tag }}` (only reports a change if the image really changed).
-- Runs the container: `ibimina-hub`, `restart_policy: unless-stopped`, port `{{ app_port }}:3000`,
-  `read_only: true`, `tmpfs /tmp` (noexec, nosuid, 64 MB), `cap_drop: [ALL]`,
-  `no-new-privileges:true`, 256 MB memory with no extra swap, a limit of 100 processes, and a Docker
-  healthcheck on `/health`.
-- Waits for `http://localhost:{{ app_port }}/health` to return 200 (`uri` with `retries`/`until`/`delay`).
-- Secret environment variables go in `app_secret_env` (e.g. from ansible-vault). The container task
-  then runs with `no_log`, so they never show in the output.
+- Renders `compose.yaml` (`templates/compose.yaml.j2`): service `api`, container `ibimina-hub`,
+  `restart: unless-stopped`, port `{{ app_port }}:3000`, `env_file: .env`, `read_only`, noexec
+  tmpfs `/tmp`, `cap_drop: [ALL]`, `no-new-privileges`, 256 MB memory, 100 pids, healthcheck on
+  `/health`, and a label with the checksum of `.env` so a settings change recreates the container.
+- `docker compose up -d` through `community.docker.docker_compose_v2` with `pull: always` and
+  `wait: true` (waits for the container healthcheck).
+- Waits for `http://localhost:{{ app_port }}/health` to return 200 and prints the response,
+  which includes the commit SHA of the running image.
 
 ## Error handling and rollback
 
 The deploy lives in a `block` / `rescue` / `always`:
 
 ```
-block:   pull image -> start container -> wait for /health 200
-rescue:  start the previous image ID again -> check it is healthy
+block:   compose.yaml with the new tag -> compose up -d (pull) -> wait for /health 200
+rescue:  compose.yaml with the previous image ID -> compose up -d -> check it is healthy
          -> fail the play: "Deploy of X failed, so it was ROLLED BACK to Y, which is healthy."
 always:  print the final status (OK / ROLLED BACK / FAILED)
 ```
@@ -224,8 +236,8 @@ Other error handling:
 
 | Area | Setting |
 |------|---------|
-| SSH | key only (`PasswordAuthentication no`, `KbdInteractiveAuthentication no`, `AuthenticationMethods publickey`), `PermitRootLogin no`, `AllowUsers azureuser`, `MaxAuthTries 3`, `LoginGraceTime 30`, `ClientAliveInterval 300`, all forwarding off, `LogLevel VERBOSE` |
-| Firewall | UFW default deny in, SSH only from `admin_cidrs`, app port open, logging on |
+| SSH | key only (`PasswordAuthentication no`, `KbdInteractiveAuthentication no`, `AuthenticationMethods publickey`), `PermitRootLogin no`, `AllowUsers azureuser`, `MaxAuthTries 3`, `LoginGraceTime 30`, `ClientAliveInterval 300`, `LogLevel VERBOSE`; forwarding off on the app VM; on the bastion only TCP forwarding to `<app VM>:22` (`PermitOpen`) |
+| Firewall | UFW default deny in, logging on. App VM: SSH only from the bastion subnet, app port open. Bastion: SSH only (its gate is the NSG, see below), no app port |
 | Brute force | fail2ban sshd jail (aggressive mode, growing bans, admins never banned) |
 | Kernel | `rp_filter`, no ICMP redirects (accept or send), no source routing, SYN cookies, ignore broadcast pings, log martians, `kptr_restrict`, `dmesg_restrict`, `suid_dumpable 0` |
 | Updates | daily unattended security upgrades |
@@ -242,12 +254,17 @@ plus the NSG's deny-all rule for everything else). SSH is not published by Docke
 UFW, fail2ban and the NSG all apply.
 
 ### Accepted risks
+- **Bastion UFW allows SSH from any source.** GitHub-hosted runners have no fixed IP, so CD
+  adds a temporary NSG rule for its runner's /32 and removes it at the end of the job.
+  UFW on the VM cannot know that IP in advance, so the Azure NSG (admin /32s + that one
+  temporary rule) is the gate for the bastion. Key-only login, `AllowUsers` and fail2ban
+  still apply on the box.
 - `host_key_checking = False`: the VM is recreated by Terraform and gets a new host key each time.
   The NSG only lets admin IPs reach SSH, which reduces the man-in-the-middle risk.
 - Being in the `docker` group is effectively root on the host. Only `azureuser` (key-only, admin IPs only)
   is added.
-- `app_tag: latest` is the default for convenience. Pass a commit tag (`-e app_tag=<full commit sha>`, the tag the Release workflow pushes) for
-  repeatable deploys and easy rollbacks.
+- `app_tag: latest` is the default for convenience. CD always passes the commit SHA it just
+  pushed (`-e app_tag=<full commit sha>`), so every deploy is repeatable and easy to roll back.
 
 ## Linting
 
@@ -258,7 +275,35 @@ ansible-playbook site.yml --syntax-check
 
 Both pass with 0 failures and 0 warnings.
 
-## Run evidence
+## Run evidence (summative: bastion + private VM + ACR + Compose)
+
+Runs on 18 Nov 2026 from a laptop, through the bastion, with the dynamic inventory reading
+remote state:
+
+```
+# Run 1 (new app VM, bastion already configured):
+ibimina-hub                : ok=57   changed=28   unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
+ibimina-hub-bastion        : ok=25   changed=2    unreachable=0    failed=0    skipped=1    rescued=0    ignored=0
+OK: ibimina-hub runs ibiminahubdev4xjok.azurecr.io/ibimina-hub:bootstrap, {"status":"ok",...}
+    Public URL: http://ibimina-hub-dev.southafricanorth.cloudapp.azure.com
+
+# Run 2 (same command again):
+ibimina-hub                : ok=52   changed=0    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
+ibimina-hub-bastion        : ok=23   changed=0    unreachable=0    failed=0    skipped=1    rescued=0    ignored=0
+
+# Rollback (--tags app -e app_tag=does-not-exist):
+Deploy of ibiminahubdev4xjok.azurecr.io/ibimina-hub:does-not-exist failed, so it was ROLLED BACK to
+ibiminahubdev4xjok.azurecr.io/ibimina-hub:bootstrap (6970b5f8c62a), which is healthy.
+```
+
+Found on the way: the first run hardened the bastion with `AllowTcpForwarding no`, which
+broke the SSH hop to the app VM (`Connection closed by UNKNOWN port 65535`). The bastion now
+allows TCP forwarding to the app VM's port 22 only (`PermitOpen`).
+
+Network checks from the VMs: the app VM resolves `ibimina-hub-dev-pg.postgres.database.azure.com`
+to `10.20.2.4` and reaches port 5432; the bastion cannot (database NSG allows the app subnet only).
+
+## Run evidence (Formative 3: single public VM, GHCR)
 
 Real runs against the Azure VM from `terraform/` (Standard_B2ats_v2, Ubuntu 22.04, `southafricanorth`)
 on 9 Nov 2026, using the dynamic inventory.

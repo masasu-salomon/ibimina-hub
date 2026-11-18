@@ -1,0 +1,265 @@
+name: CD
+
+# "Deploy to Production". Runs only when something lands on main, and branch
+# protection means that only happens by merging a reviewed PR whose checks passed.
+#
+#   ci + security      the same checks as on the PR, run again on the merge result
+#        |
+#   build-push         build -> Trivy gate -> push to ACR (tag = commit SHA)
+#        |                                  terraform-plan (drift check, parallel)
+#   deploy             Ansible through the bastion: ACR login, pull, compose up -d,
+#                      health check (rolls back by itself on failure)
+#        |
+#   smoke test         public URL through the load balancer reports the new commit
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# One deploy at a time, and never cancel one half-way.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  TF_DIR: terraform/envs/dev
+  # Terraform's azurerm backend + provider log in through GitHub OIDC too.
+  ARM_USE_OIDC: "true"
+  ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+jobs:
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+
+  security:
+    name: Security
+    uses: ./.github/workflows/security.yml
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+
+  build-push:
+    name: Build, scan and push image
+    needs: [ci, security]
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write # OIDC token for Azure; no stored cloud password
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Azure (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+
+      # The registry name comes from Terraform state, not from a copy in GitHub.
+      - name: Read the registry from Terraform outputs
+        id: meta
+        run: |
+          terraform -chdir="$TF_DIR" init -input=false -no-color >/dev/null
+          ACR_NAME=$(terraform -chdir="$TF_DIR" output -raw acr_name)
+          LOGIN_SERVER=$(terraform -chdir="$TF_DIR" output -raw acr_login_server)
+          echo "acr_name=$ACR_NAME" >> "$GITHUB_OUTPUT"
+          echo "image=$LOGIN_SERVER/ibimina-hub" >> "$GITHUB_OUTPUT"
+
+      - name: Log Docker in to ACR
+        run: az acr login --name "${{ steps.meta.outputs.acr_name }}"
+
+      - name: Build image
+        run: |
+          docker build \
+            --build-arg GIT_SHA=${{ github.sha }} \
+            --label org.opencontainers.image.revision=${{ github.sha }} \
+            -t "${{ steps.meta.outputs.image }}:${{ github.sha }}" \
+            -t "${{ steps.meta.outputs.image }}:latest" .
+
+      # Last gate before the registry: scan the exact image that will ship.
+      - name: Scan the image with Trivy (fails on fixable CRITICAL/HIGH)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ steps.meta.outputs.image }}:${{ github.sha }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+
+      - name: Push to ACR
+        run: |
+          docker push "${{ steps.meta.outputs.image }}:${{ github.sha }}"
+          docker push "${{ steps.meta.outputs.image }}:latest"
+          echo "Pushed \`${{ steps.meta.outputs.image }}:${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+
+  terraform-plan:
+    name: Terraform plan (drift check)
+    needs: [ci, security]
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+
+      - name: Write dev.tfvars from the TF_VARS_DEV secret
+        run: printf '%s\n' "$TF_VARS_DEV" > "$TF_DIR/dev.tfvars"
+        env:
+          TF_VARS_DEV: ${{ secrets.TF_VARS_DEV }}
+
+      - name: Init
+        run: terraform -chdir="$TF_DIR" init -input=false -no-color
+
+      # Read-only identity: this pipeline never applies. Exit code 2 means the
+      # live infrastructure differs from the code; it is reported, not applied.
+      - name: Plan
+        id: plan
+        run: |
+          set +e
+          terraform -chdir="$TF_DIR" plan -var-file=dev.tfvars -input=false -no-color \
+            -lock-timeout=5m -detailed-exitcode > plan.txt 2>&1
+          code=$?
+          set -e
+          cat plan.txt
+          {
+            echo "### Terraform plan (envs/dev)"
+            echo '```'
+            grep -E "^(Plan:|No changes)|will be|must be" plan.txt || tail -20 plan.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$code" -eq 2 ]; then
+            echo "::warning title=Infrastructure drift::terraform plan shows changes. Review plan.txt and apply from a laptop."
+          elif [ "$code" -ne 0 ]; then
+            exit "$code"
+          fi
+
+      - name: Keep the plan output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: plan.txt
+          retention-days: 30
+
+  deploy:
+    name: Deploy with Ansible
+    needs: [build-push]
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ steps.tf.outputs.app_url }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      ANSIBLE_PRIVATE_KEY_FILE: ${{ github.workspace }}/.cd_ssh_key
+      ANSIBLE_FORCE_COLOR: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Azure (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+
+      - name: Read targets from Terraform outputs
+        id: tf
+        run: |
+          terraform -chdir="$TF_DIR" init -input=false -no-color >/dev/null
+          {
+            echo "app_url=$(terraform -chdir="$TF_DIR" output -raw app_url)"
+            echo "rg=$(terraform -chdir="$TF_DIR" output -raw resource_group_name)"
+            echo "nsg=$(terraform -chdir="$TF_DIR" output -raw bastion_nsg_name)"
+            echo "bastion=$(terraform -chdir="$TF_DIR" output -raw bastion_public_ip)"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Ansible and collections
+        run: |
+          pip install "ansible-core>=2.17,<2.18"
+          ansible-galaxy collection install -r ansible/requirements.yml
+
+      - name: Write the deploy SSH key
+        run: |
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$ANSIBLE_PRIVATE_KEY_FILE"
+          chmod 600 "$ANSIBLE_PRIVATE_KEY_FILE"
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      # The bastion NSG only lets admin IPs in. Open SSH for this runner's IP for
+      # the length of the deploy; the last step always closes it again.
+      - name: Open SSH on the bastion for this runner
+        run: |
+          RUNNER_IP=$(curl -4 -fsS https://api.ipify.org)
+          echo "Runner IP: $RUNNER_IP"
+          az network nsg rule create \
+            --resource-group "${{ steps.tf.outputs.rg }}" \
+            --nsg-name "${{ steps.tf.outputs.nsg }}" \
+            --name "AllowCDRunner" --priority 200 --direction Inbound --access Allow \
+            --protocol Tcp --destination-port-ranges 22 \
+            --source-address-prefixes "$RUNNER_IP/32" \
+            --description "Temporary: CD run ${{ github.run_id }}" --output none
+          for i in $(seq 1 30); do
+            nc -z -w 3 "${{ steps.tf.outputs.bastion }}" 22 && exit 0
+            sleep 5
+          done
+          echo "Bastion SSH did not open in time"; exit 1
+
+      - name: Run the Ansible playbook (deploy ${{ github.sha }})
+        working-directory: ansible
+        run: ansible-playbook site.yml -e "app_tag=${{ github.sha }}"
+
+      - name: Smoke test the public URL
+        run: |
+          URL="${{ steps.tf.outputs.app_url }}/health"
+          for i in $(seq 1 24); do
+            BODY=$(curl -fsS --max-time 5 "$URL" || true)
+            echo "$BODY"
+            if echo "$BODY" | grep -q '"commit":"${{ github.sha }}"'; then
+              echo "### Live: ${{ steps.tf.outputs.app_url }}" >> "$GITHUB_STEP_SUMMARY"
+              echo "\`$BODY\`" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::$URL does not report commit ${{ github.sha }}"; exit 1
+
+      - name: Close SSH on the bastion again
+        if: always() && steps.tf.outputs.nsg != ''
+        run: |
+          az network nsg rule delete \
+            --resource-group "${{ steps.tf.outputs.rg }}" \
+            --nsg-name "${{ steps.tf.outputs.nsg }}" \
+            --name "AllowCDRunner" --output none
+          rm -f "$ANSIBLE_PRIVATE_KEY_FILE"

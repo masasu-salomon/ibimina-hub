@@ -1,0 +1,14 @@
+---
+# The bastion's SSH gate is the Azure NSG in front of it: admin /32s only, plus a
+# rule CD adds for its runner's IP during a deploy and removes afterwards.
+# GitHub-hosted runners have no fixed IP, so UFW on the bastion cannot list them;
+# it allows SSH from anywhere that got past the NSG. Key-only login, AllowUsers
+# and fail2ban still apply. admin_cidrs is still checked by the hardening role.
+hardening_ssh_sources:
+  - any
+
+# The bastion serves no app traffic.
+hardening_allow_app_port: false
+
+# The bastion forwards SSH to the app VM and nothing else (sshd PermitOpen).
+hardening_ssh_jump_targets: "{{ groups['app'] | map('extract', hostvars, 'ansible_host') | map('regex_replace', '$', ':22') | list }}"
