@@ -27,6 +27,17 @@ variable "github_repository" {
   }
 }
 
+variable "github_oidc_subject_prefix" {
+  description = "Prefix GitHub puts on this repo's OIDC subject. Read it with: gh api repos/OWNER/REPO/actions/oidc/customization/sub --jq .sub_claim_prefix"
+  type        = string
+  default     = "repo:masasu-salomon@180163847/ibimina-hub@1428870229"
+
+  validation {
+    condition     = can(regex("^repo:[A-Za-z0-9_.-]+@[0-9]+/[A-Za-z0-9_.-]+@[0-9]+$", var.github_oidc_subject_prefix))
+    error_message = "Use GitHub's immutable form: repo:owner@owner_id/name@repo_id."
+  }
+}
+
 variable "github_environment" {
   description = "GitHub environment the CD jobs run in. Only jobs in this environment get an Azure token."
   type        = string
