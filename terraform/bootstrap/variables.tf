@@ -27,14 +27,14 @@ variable "github_repository" {
   }
 }
 
-variable "github_oidc_subject_prefix" {
-  description = "Prefix GitHub puts on this repo's OIDC subject. Read it with: gh api repos/OWNER/REPO/actions/oidc/customization/sub --jq .sub_claim_prefix"
+variable "github_repository_immutable" {
+  description = "github_repository in GitHub's immutable OIDC form, owner@owner_id/name@repo_id. Read it with: gh api repos/OWNER/REPO/actions/oidc/customization/sub --jq .sub_claim_prefix (drop the leading repo:)"
   type        = string
-  default     = "repo:masasu-salomon@180163847/ibimina-hub@1428870229"
+  default     = "masasu-salomon@180163847/ibimina-hub@1428870229"
 
   validation {
-    condition     = can(regex("^repo:[A-Za-z0-9_.-]+@[0-9]+/[A-Za-z0-9_.-]+@[0-9]+$", var.github_oidc_subject_prefix))
-    error_message = "Use GitHub's immutable form: repo:owner@owner_id/name@repo_id."
+    condition     = can(regex("^[A-Za-z0-9_.-]+@[0-9]+/[A-Za-z0-9_.-]+@[0-9]+$", var.github_repository_immutable))
+    error_message = "Use GitHub's immutable form: owner@owner_id/name@repo_id."
   }
 }
 

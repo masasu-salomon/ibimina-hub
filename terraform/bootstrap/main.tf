@@ -110,7 +110,7 @@ resource "azuread_application_federated_identity_credential" "production" {
   description    = "GitHub Actions jobs in the ${var.github_environment} environment of ${var.github_repository}"
   audiences      = ["api://AzureADTokenExchange"]
   issuer         = "https://token.actions.githubusercontent.com"
-  subject        = "${var.github_oidc_subject_prefix}:environment:${var.github_environment}"
+  subject        = "repo:${var.github_repository_immutable}:environment:${var.github_environment}"
 }
 
 # Least privilege for the pipeline. Everything else it needs is granted next to
