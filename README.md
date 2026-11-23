@@ -60,7 +60,7 @@ behind a small collection interface so that persistent storage can be introduced
 
 - **Backend**: Node.js 18+ and Express 4
 - **Frontend**: None; this version provides a REST API
-- **Database**: In-memory store (`src/common/store.js`), designed for later PostgreSQL support
+- **Database**: PostgreSQL (in-memory fallback when `DATABASE_URL` is unset)
 - **Testing**: Jest and Supertest
 - **Linting**: ESLint 9
 - **Infrastructure**: Terraform (Azure: VNet, bastion, private VM, Standard Load Balancer,
@@ -181,6 +181,8 @@ docker run -p 3000:3000 ibimina-hub
 | `HOST_PORT` | `3000` | Compose | Port on your computer that forwards to the container |
 | `NODE_ENV` | `production` in the image | App | Runtime mode |
 | `CURRENCY` | `RWF` | App | Currency shown with amounts |
+| `DATABASE_URL` | unset (in memory) | App | PostgreSQL connection string, e.g. `postgres://user:pass@host:5432/ibimina?sslmode=require`. When set, the app creates a `records` table on startup, loads saved data back and writes every new record to it; if it cannot connect at startup it exits with code 1 |
+| `LOG_LEVEL` | `info` | App | Lowest level printed (`debug`, `info`, `warn`, `error`). Logs are one JSON line per request and never include request bodies or query strings; nothing is logged when `NODE_ENV=test` |
 
 Set `HOST_PORT` in `.env` if port 3000 is already in use on your computer. Never commit
 the real `.env` file.
@@ -355,7 +357,8 @@ All request and response bodies are JSON. Amounts are whole numbers in RWF.
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/health` | Service health check |
+| `GET` | `/health` | Liveness check (used by the load balancer) |
+| `GET` | `/health/ready` | Readiness check: can the app reach its database? |
 | `POST` | `/api/groups` | Create a group |
 | `GET` | `/api/groups` | List groups |
 | `GET` | `/api/groups/:groupId` | Get one group |
@@ -368,6 +371,13 @@ All request and response bodies are JSON. Amounts are whole numbers in RWF.
 | `POST` | `/api/groups/:groupId/payouts` | Pay the next member |
 | `GET` | `/api/groups/:groupId/payouts` | View payout history |
 | `GET` | `/api/groups/:groupId/summary` | View the group overview |
+
+`/health` vs `/health/ready`: `/health` is the **liveness** check. It only says the
+process is up, so the load balancer and Docker keep using it and a short database
+outage does not take the VM out of rotation. `/health/ready` is the **readiness**
+check. It runs `SELECT 1` against PostgreSQL and returns `200 {"status":"ready","database":"ok"}`
+(or `"not-configured"` when `DATABASE_URL` is unset) and `503 {"status":"not-ready","database":"error"}`
+when the database cannot be reached.
 
 ## Links
 

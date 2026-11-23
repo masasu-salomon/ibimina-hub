@@ -1,5 +1,6 @@
 const express = require('express');
 const { notFoundHandler, errorHandler } = require('./common/errors');
+const { requestLogger } = require('./common/logger');
 const healthRoutes = require('./modules/health/health.routes');
 const groupRoutes = require('./modules/groups/groups.routes');
 const memberRoutes = require('./modules/members/members.routes');
@@ -9,6 +10,7 @@ const summaryRoutes = require('./modules/summary/summary.routes');
 
 function createApp() {
   const app = express();
+  app.use(requestLogger);
   app.use(express.json());
 
   app.use('/health', healthRoutes);
