@@ -1,3 +1,5 @@
+const { log } = require('./logger');
+
 class AppError extends Error {
   constructor(status, message, details) {
     super(message);
@@ -24,7 +26,7 @@ function errorHandler(err, req, res, next) {
   if (err.type === 'entity.parse.failed') {
     return res.status(400).json({ error: 'Request body must be valid JSON' });
   }
-  console.error(err);
+  log('error', 'Unexpected error', { method: req.method, path: req.originalUrl.split('?')[0], error: err.message, stack: err.stack });
   return res.status(500).json({ error: 'Internal server error' });
 }
 

@@ -82,3 +82,18 @@ describe('log helper', () => {
     ]);
   });
 });
+
+describe('error handler', () => {
+  it('logs unexpected errors as one JSON line without the query string', () => {
+    const { errorHandler } = require('../src/common/errors');
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+
+    errorHandler(new Error('boom'), { method: 'GET', originalUrl: '/api/groups?phone=0781234567' }, res, () => {});
+
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(lines()).toEqual([
+      expect.objectContaining({ level: 'error', msg: 'Unexpected error', method: 'GET', path: '/api/groups', error: 'boom' }),
+    ]);
+    expect(output.join('')).not.toContain('0781234567');
+  });
+});
