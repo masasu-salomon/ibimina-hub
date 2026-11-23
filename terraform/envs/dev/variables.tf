@@ -62,18 +62,18 @@ variable "ssh_public_key" {
 }
 
 variable "extra_ssh_public_keys" {
-  description = "Teammates' SSH public keys (contents, not paths), so they can log in too."
+  description = "Teammates' and the CD deploy key's SSH public keys (contents, not paths)."
   type        = list(string)
   default     = []
 }
 
 variable "admin_cidrs" {
-  description = "Public IPs allowed to SSH in, in CIDR form. Find yours with: curl ifconfig.me"
+  description = "Public IPs allowed to SSH into the bastion, in CIDR form. Find yours with: curl -4 ifconfig.me"
   type        = list(string)
 }
 
 variable "app_allowed_cidrs" {
-  description = "Who can reach the API port. The API is public by default."
+  description = "Who can reach the API (through the load balancer). The API is public by default."
   type        = list(string)
   default     = ["0.0.0.0/0"]
 }
@@ -95,10 +95,46 @@ variable "vnet_cidr" {
   default     = "10.20.0.0/16"
 }
 
-variable "subnet_cidr" {
-  description = "Address range of the app subnet."
+variable "public_subnet_cidr" {
+  description = "Subnet of the bastion host."
+  type        = string
+  default     = "10.20.0.0/24"
+}
+
+variable "private_subnet_cidr" {
+  description = "Subnet of the app VM (no public IPs)."
   type        = string
   default     = "10.20.1.0/24"
+}
+
+variable "database_subnet_cidr" {
+  description = "Subnet delegated to PostgreSQL Flexible Server."
+  type        = string
+  default     = "10.20.2.0/24"
+}
+
+variable "bastion_vm_size" {
+  description = "VM size of the bastion. It only forwards SSH, so the smallest size is enough."
+  type        = string
+  default     = "Standard_B2ats_v2"
+}
+
+variable "database_sku" {
+  description = "PostgreSQL Flexible Server size."
+  type        = string
+  default     = "B_Standard_B1ms"
+}
+
+variable "dns_label" {
+  description = "DNS label of the load balancer (<label>.<region>.cloudapp.azure.com). Defaults to <project>-<environment>."
+  type        = string
+  default     = null
+}
+
+variable "cd_principal_object_id" {
+  description = "Object ID of the CD service principal (output of terraform/bootstrap). Gets AcrPush and rule rights on the bastion NSG."
+  type        = string
+  default     = null
 }
 
 variable "os_disk_size_gb" {

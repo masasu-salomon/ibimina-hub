@@ -5,8 +5,33 @@
       - app_image | length > 0
       - app_tag | string | length > 0
       - app_port | int > 1023
-    fail_msg: "app_image and app_tag must be set and app_port must be above 1023 (got {{ app_image }}:{{ app_tag }} on {{ app_port }})."
+    fail_msg: >-
+      app_image and app_tag must be set and app_port must be above 1023
+      (got '{{ app_image }}:{{ app_tag }}' on {{ app_port }}).
+      Is the Terraform inventory finding the state?
     quiet: true
+
+- name: Create the app folder
+  ansible.builtin.file:
+    path: "{{ app_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+# Root-only: holds DATABASE_URL. Compose passes it to the container.
+- name: Write the container settings (.env)
+  ansible.builtin.template:
+    src: app.env.j2
+    dest: "{{ app_dir }}/.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Log in to the private registry
+  ansible.builtin.include_tasks: registry.yml
+  when: app_acr_login_server | length > 0
 
 # ---------- Remember what is running now, for rollback ----------
 - name: Look up the container that is running now
@@ -38,25 +63,18 @@
 # ---------- Deploy, check, roll back on failure ----------
 - name: Deploy {{ app_image + ':' + app_tag | string }}
   block:
-    # force_source pulls every run so "latest" gets updates, but the task only
-    # reports a change when the image ID really changed.
-    - name: Pull the image
-      community.docker.docker_image:
-        name: "{{ app_image }}"
-        tag: "{{ app_tag | string }}"
-        source: pull
-        force_source: true
-
-    - name: Start the container
-      ansible.builtin.include_tasks: container.yml
+    - name: Pull the new image and recreate the service
+      ansible.builtin.include_tasks: compose.yml
       vars:
         app_run_image: "{{ app_image }}:{{ app_tag }}"
+        app_compose_pull: always
 
     - name: Wait until the health endpoint answers 200
       ansible.builtin.uri:
         url: "http://localhost:{{ app_port }}{{ app_health_path }}"
         status_code: 200
         timeout: 5
+        return_content: true
       register: app_health
       until: app_health.status == 200
       retries: "{{ app_health_retries }}"
@@ -73,9 +91,10 @@
         msg: "'{{ ansible_failed_task.name }}' failed: {{ ansible_failed_result.msg | default('see the error above') }}"
 
     - name: Start the previous image again
-      ansible.builtin.include_tasks: container.yml
+      ansible.builtin.include_tasks: compose.yml
       vars:
         app_run_image: "{{ app_previous_image_id }}"
+        app_compose_pull: never
       when: app_previous_image_id | length > 0
 
     - name: Check the rolled-back container is healthy
@@ -108,7 +127,7 @@
       ansible.builtin.debug:
         msg: >-
           {% if ansible_check_mode %}CHECK MODE: nothing was deployed.
-          {% elif app_deploy_ok %}OK: {{ app_container_name }} runs {{ app_image }}:{{ app_tag }} and
-          http://localhost:{{ app_port }}{{ app_health_path }} returned 200.
+          {% elif app_deploy_ok %}OK: {{ app_container_name }} runs {{ app_image }}:{{ app_tag }},
+          {{ app_health.content | default('') }}{{ ' Public URL: ' + app_public_url if app_public_url is defined else '' }}
           {% elif app_rolled_back %}ROLLED BACK: {{ app_container_name }} runs {{ app_previous_image_ref }} again.
           {% else %}FAILED: {{ app_container_name }} is not healthy and nothing could be rolled back.{% endif %}

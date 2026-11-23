@@ -23,13 +23,33 @@ variable "vnet_cidr" {
   }
 }
 
-variable "subnet_cidr" {
-  description = "Address range of the app subnet. Must sit inside vnet_cidr."
+variable "public_subnet_cidr" {
+  description = "Subnet for the bastion host. Must sit inside vnet_cidr."
   type        = string
 
   validation {
-    condition     = can(cidrhost(var.subnet_cidr, 0))
-    error_message = "subnet_cidr must be a valid CIDR block, e.g. 10.20.1.0/24."
+    condition     = can(cidrhost(var.public_subnet_cidr, 0))
+    error_message = "public_subnet_cidr must be a valid CIDR block."
+  }
+}
+
+variable "private_subnet_cidr" {
+  description = "Subnet for the app VM (no public IPs). Must sit inside vnet_cidr."
+  type        = string
+
+  validation {
+    condition     = can(cidrhost(var.private_subnet_cidr, 0))
+    error_message = "private_subnet_cidr must be a valid CIDR block."
+  }
+}
+
+variable "database_subnet_cidr" {
+  description = "Subnet delegated to PostgreSQL Flexible Server. Must sit inside vnet_cidr."
+  type        = string
+
+  validation {
+    condition     = can(cidrhost(var.database_subnet_cidr, 0))
+    error_message = "database_subnet_cidr must be a valid CIDR block."
   }
 }
 

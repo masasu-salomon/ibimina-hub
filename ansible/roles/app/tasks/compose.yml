@@ -1,0 +1,29 @@
+---
+# Used twice by main.yml: for the new image and, on failure, for the previous
+# one (app_run_image is then an image ID). Same settings both times.
+# compose only recreates a container when compose.yaml changes, not when .env
+# does. A checksum of the settings in a label makes a settings change a
+# compose.yaml change, so `up` picks it up without a separate restart.
+- name: Work out the checksum of the container settings
+  ansible.builtin.set_fact:
+    app_env_checksum: "{{ lookup('ansible.builtin.template', 'app.env.j2') | hash('sha256') }}"
+  no_log: true
+
+- name: Write the compose file for {{ app_run_image }}
+  ansible.builtin.template:
+    src: compose.yaml.j2
+    dest: "{{ app_dir }}/compose.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Start the service with docker compose up -d
+  community.docker.docker_compose_v2:
+    project_src: "{{ app_dir }}"
+    project_name: "{{ app_compose_project }}"
+    state: present
+    pull: "{{ app_compose_pull }}"
+    remove_orphans: true
+    # Waits until the container's own healthcheck reports healthy.
+    wait: true
+    wait_timeout: 120

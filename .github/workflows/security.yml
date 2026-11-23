@@ -2,8 +2,11 @@ name: Security Scans
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, summative]
   push:
+    branches-ignore: [main]
+  # cd.yml calls this file, so main is scanned again right before a deploy.
+  workflow_call:
 
 permissions:
   contents: read

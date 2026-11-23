@@ -3,6 +3,11 @@
 > **Your savings group's notebook, in your pocket.** Transparent record-keeping for community savings groups in Rwanda.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![CI](https://github.com/masasu-salomon/ibimina-hub/actions/workflows/ci.yml/badge.svg)](https://github.com/masasu-salomon/ibimina-hub/actions/workflows/ci.yml)
+[![CD](https://github.com/masasu-salomon/ibimina-hub/actions/workflows/cd.yml/badge.svg)](https://github.com/masasu-salomon/ibimina-hub/actions/workflows/cd.yml)
+
+**Live application:** <http://ibimina-hub-dev.southafricanorth.cloudapp.azure.com>
+· health: <http://ibimina-hub-dev.southafricanorth.cloudapp.azure.com/health>
 
 ## African Context
 
@@ -55,12 +60,13 @@ behind a small collection interface so that persistent storage can be introduced
 
 - **Backend**: Node.js 18+ and Express 4
 - **Frontend**: None; this version provides a REST API
-- **Database**: In-memory store (`src/common/store.js`), designed for later PostgreSQL support
+- **Database**: PostgreSQL (in-memory fallback when `DATABASE_URL` is unset)
 - **Testing**: Jest and Supertest
 - **Linting**: ESLint 9
-- **Infrastructure**: Terraform (Azure), Ansible
-- **Security**: npm audit, Trivy, Checkov, Gitleaks
-- **Other**: Docker, Docker Compose, GitHub Actions CI and GHCR
+- **Infrastructure**: Terraform (Azure: VNet, bastion, private VM, Standard Load Balancer,
+  PostgreSQL Flexible Server, Azure Container Registry), Ansible
+- **Security**: npm audit, Trivy, Checkov, Gitleaks, ansible-lint
+- **Other**: Docker, Docker Compose, GitHub Actions (CI + CD), GitHub OIDC to Azure
 
 ## Getting Started
 
@@ -175,80 +181,154 @@ docker run -p 3000:3000 ibimina-hub
 | `HOST_PORT` | `3000` | Compose | Port on your computer that forwards to the container |
 | `NODE_ENV` | `production` in the image | App | Runtime mode |
 | `CURRENCY` | `RWF` | App | Currency shown with amounts |
+| `DATABASE_URL` | unset (in memory) | App | PostgreSQL connection string, e.g. `postgres://user:pass@host:5432/ibimina?sslmode=require`. When set, the app creates a `records` table on startup, loads saved data back and writes every new record to it; if it cannot connect at startup it exits with code 1 |
+| `LOG_LEVEL` | `info` | App | Lowest level printed (`debug`, `info`, `warn`, `error`). Logs are one JSON line per request and never include request bodies or query strings; nothing is logged when `NODE_ENV=test` |
 
 Set `HOST_PORT` in `.env` if port 3000 is already in use on your computer. Never commit
 the real `.env` file.
 
-## Continuous Integration
+## Architecture
 
-GitHub Actions runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml) on every push
-to a branch other than `main` and on every pull request targeting `main`. It:
+```mermaid
+flowchart LR
+    dev([Developer]) -->|PR| gh[GitHub<br/>branch protection]
+    gh -->|merge to main| cd[GitHub Actions CD<br/>lint, test, scans,<br/>build, Trivy gate]
+    cd -->|OIDC, AcrPush| acr[(Azure Container<br/>Registry)]
+    cd -->|SSH via temporary<br/>NSG rule + Ansible| bastion
 
-1. checks out the code and sets up Node.js 20
-2. installs dependencies with `npm ci`
-3. runs ESLint (`npm run lint`)
-4. runs the Jest tests with coverage
-5. audits production dependencies for high-severity vulnerabilities
-6. builds the Docker image and smoke-tests `/health` in a running container
+    subgraph azure[Azure: ibimina-hub-dev-rg, VNet 10.20.0.0/16]
+        subgraph pub[public subnet 10.20.0.0/24]
+            bastion[Bastion VM<br/>public IP, SSH from admin /32s]
+        end
+        subgraph priv[private subnet 10.20.1.0/24]
+            app[App VM, no public IP<br/>Docker Compose: ibimina-hub:3000]
+        end
+        subgraph dbs[database subnet 10.20.2.0/24, delegated]
+            pg[(PostgreSQL 16<br/>Flexible Server<br/>private access only)]
+        end
+        lb[Standard Load Balancer<br/>public IP :80<br/>probe /health]
+    end
 
-Any failing step fails the run.
-
-After a pull request merges, [`.github/workflows/release.yml`](.github/workflows/release.yml)
-builds the image again and publishes it to GitHub Container Registry as
-`ghcr.io/masasu-salomon/ibimina-hub:<commit sha>` and `:latest`. The servers pull it from there.
-The package is public, so pulling needs no login:
-
-```bash
-docker run -p 3000:3000 ghcr.io/masasu-salomon/ibimina-hub:latest
+    users([Users]) -->|HTTP :80| lb -->|:3000| app
+    bastion -->|SSH :22| app
+    app -->|TLS :5432| pg
+    app -->|managed identity,<br/>AcrPull| acr
+    app -->|egress via LB<br/>outbound rule| internet((Internet))
 ```
 
-[`.github/workflows/security.yml`](.github/workflows/security.yml) runs four security
-scans on every pull request. See [Security scanning](#security-scanning-devsecops) below.
+| Piece | Where | Who can reach it |
+|---|---|---|
+| Load balancer `ibimina-hub-dev-lb` | public IP, DNS `ibimina-hub-dev.southafricanorth.cloudapp.azure.com` | anyone, port 80 only |
+| Bastion `ibimina-hub-dev-bastion-vm` | public subnet, own public IP | SSH from `admin_cidrs` (/32s); CD adds its runner's IP for one deploy |
+| App VM `ibimina-hub-dev-vm` | private subnet, **no public IP** | port 3000 via the load balancer; SSH only from the bastion subnet |
+| PostgreSQL `ibimina-hub-dev-pg` | delegated subnet, private DNS | port 5432 from the app subnet only, TLS required |
+| Registry `ibiminahubdev4xjok.azurecr.io` | Azure (Basic) | push: CD identity (AcrPush); pull: app VM identity (AcrPull); admin user off |
+| Terraform state | storage account `ibiminatfstate2dl703` | Entra ID only (shared keys off), blob versioning |
 
-Branch protection on `main` requires `Test`, `Docker build`, `Terraform` and the four
-security scans to pass, plus one approving review, before a pull request can merge.
+No password or cloud key is stored anywhere: GitHub logs in to Azure with OIDC, the VM
+pulls images with its managed identity, and the database password is generated by
+Terraform and only written to a root-only file on the VM.
 
-## Infrastructure and Deployment
-
-The app runs on an Azure VM built and configured entirely from code:
+## CI/CD Pipeline
 
 ```text
-terraform/  ->  network, firewall (NSG) and an Ubuntu VM        (provision)
-ansible/    ->  Docker, SSH/firewall hardening, app container  (configure + deploy)
+feature branch --PR--> CI + Security (required checks) --review + merge--> main
+                                                                             |
+                                                         cd.yml "Deploy to Production"
+  ci (reused ci.yml) + security (reused security.yml)    same checks on the merged code
+        |
+  build-push    docker build --build-arg GIT_SHA -> Trivy (fails on fixable HIGH/CRITICAL)
+        |       -> push ibiminahubdev4xjok.azurecr.io/ibimina-hub:<sha> and :latest
+        |                                          terraform-plan  (drift check, read-only)
+  deploy        az login (OIDC) -> open bastion NSG for runner IP -> ansible-playbook site.yml
+        |       -e app_tag=<sha> -> ACR login, pull, docker compose up -d, wait for /health
+        |       (rolls back to the previous image on failure) -> close NSG rule (always)
+  smoke test    public URL /health must report "commit": "<sha>"
 ```
 
-| Step | Tool | Guide |
+| Workflow | Runs on | Jobs |
 |---|---|---|
-| 1. Create the VNet, subnet, NSG and VM | Terraform (modules: `network`, `security`, `compute`) | [terraform/README.md](terraform/README.md) |
-| 2. Harden the server and deploy the image from GHCR | Ansible (roles: `common`, `hardening`, `docker`, `app`; dynamic inventory from Terraform outputs) | [ansible/README.md](ansible/README.md) |
+| [`ci.yml`](.github/workflows/ci.yml) | PRs to `main`/`summative`, pushes to other branches, called by CD | Test (ESLint, Jest + coverage, npm audit), Terraform (fmt, validate both roots), Ansible lint (syntax check + ansible-lint production profile), Docker build + smoke test |
+| [`security.yml`](.github/workflows/security.yml) | same, called by CD | Dependency scan, Container scan (Trivy), IaC scan (Checkov: Terraform + Dockerfile), Secret scan (Gitleaks) |
+| [`cd.yml`](.github/workflows/cd.yml) | **push to `main` only** (= a merged PR) | CI, Security, Build/scan/push to ACR, Terraform plan, Deploy with Ansible + smoke test |
 
-Quick version:
+Branch protection on `main` requires the CI and security checks to pass and one
+approving review, with branches up to date and no force pushes, admins included.
+CD jobs run in the GitHub `production` environment, which only `main` may use; the Azure
+OIDC trust is bound to that environment, so no other branch can get an Azure token.
+
+## Infrastructure and Deployment (operations manual)
+
+| Layer | Tool | Code | Guide |
+|---|---|---|---|
+| State store + CD identity (once) | Terraform | `terraform/bootstrap` | [terraform/README.md](terraform/README.md) |
+| Network, NSGs, bastion, app VM, LB, Postgres, ACR | Terraform modules `network`, `security`, `compute` (x2), `loadbalancer`, `database`, `registry` | `terraform/envs/dev` | [terraform/README.md](terraform/README.md) |
+| Harden both VMs, install Docker + Compose, deploy | Ansible roles `common`, `hardening`, `docker`, `app`; dynamic inventory from Terraform outputs | `ansible/` | [ansible/README.md](ansible/README.md) |
+| Every release | GitHub Actions | `.github/workflows/cd.yml` | [CI/CD Pipeline](#cicd-pipeline) |
+
+### Set up from zero
+
+You need: Azure CLI (`az login` as an Owner of the subscription), Terraform >= 1.6,
+Ansible core 2.16+, Docker, an RSA SSH key pair, and admin rights on the GitHub repo.
 
 ```bash
-cd terraform/envs/dev
-terraform init && terraform apply -var-file=dev.tfvars
+# 1. Bootstrap: remote state storage + GitHub OIDC identity (once per subscription)
+cd terraform/bootstrap
+terraform init && terraform apply
+terraform output                 # client/tenant/subscription IDs, state account, CD principal
 
+# 2. Environment: put the state account in envs/dev/versions.tf (backend block), then
+cd ../envs/dev
+cp dev.tfvars.example dev.tfvars # your key, teammates' keys, CD key, admin /32s, cd_principal_object_id
+terraform init
+terraform apply -var-file=dev.tfvars
+terraform output app_url
+
+# 3. First deploy from a laptop (later deploys are done by CD)
+az acr login --name "$(terraform output -raw acr_name)"
+docker buildx build --platform linux/amd64 --build-arg GIT_SHA=$(git rev-parse HEAD) \
+  -t "$(terraform output -raw acr_login_server)/ibimina-hub:latest" --push ../../..
 cd ../../../ansible
 ansible-galaxy collection install -r requirements.yml
-ansible-playbook site.yml -e '{"admin_cidrs": ["<your IP>/32"]}'
-curl http://<public_ip>:3000/health
+ANSIBLE_PRIVATE_KEY_FILE=~/.ssh/<your key> ansible-playbook site.yml
+
+# 4. GitHub: production environment, OIDC IDs, deploy key, tfvars
+../scripts/setup-github-cd.sh
 ```
 
-Ansible reads the server IP from `terraform output`, so nothing is copied by hand.
-The playbook is idempotent (a second run reports `changed=0`) and rolls back to the
-previous image if the new container fails its health check.
+After step 4, every merge to `main` deploys itself.
+
+### Runbook
+
+| Task | Command |
+|---|---|
+| Is it up, and which commit is live? | `curl http://ibimina-hub-dev.southafricanorth.cloudapp.azure.com/health` (returns `status`, `version`, `commit`, `uptime`) |
+| Load balancer's view of the VM | Azure portal: `ibimina-hub-dev-lb` -> Monitoring -> Metrics -> *Health Probe Status* (100% = VM answering `/health`) |
+| SSH to the app VM | `ssh -J azureuser@<bastion_public_ip> azureuser@10.20.1.4` (or `terraform output ssh_command`) |
+| Container status and logs | on the app VM: `sudo docker compose -p ibimina-hub ps`, `sudo docker logs -f --tail 100 ibimina-hub` |
+| Redeploy one exact build | `ansible-playbook site.yml --tags app -e app_tag=<commit sha>` |
+| Roll back | redeploy the previous commit SHA as above; a failed deploy already rolls back by itself |
+| Check for drift | the *Terraform plan* job in the latest CD run, or `terraform plan -var-file=dev.tfvars` |
+| Re-run config only (should report `changed=0`) | `ansible-playbook site.yml` |
+| Tear everything down | `terraform -chdir=terraform/envs/dev destroy -var-file=dev.tfvars` (then `terraform/bootstrap` if wanted) |
+
+Monthly cost while running is roughly USD 45-55 (2 x B2ats_v2 VMs, B1ms PostgreSQL,
+Standard LB, ACR Basic, 2 public IPs). Destroy the environment after grading.
 
 ## Security Scanning (DevSecOps)
 
-| Scan | Tool | Fails the PR on |
-|---|---|---|
-| Dependency | `npm audit --omit=dev` | High or critical vulnerability |
-| Container image | Trivy | Fixable high or critical vulnerability |
-| Infrastructure as code | Checkov (Terraform and Dockerfile) | Any failed check not documented as accepted |
-| Secrets | Gitleaks (full Git history) | Any secret found |
+| Scan | Tool | Fails the build on | Where |
+|---|---|---|---|
+| Dependency | `npm audit --omit=dev` | High or critical vulnerability | CI, Security, CD |
+| Container image | Trivy | Fixable high or critical vulnerability | Security (PR) and again on the exact image before push in CD |
+| Infrastructure as code | Checkov (Terraform and Dockerfile) | Any failed check not documented as accepted | Security, CD |
+| Ansible | ansible-lint (production profile) | Any rule violation (e.g. secrets without `no_log`) | CI, CD |
+| Secrets | Gitleaks (full Git history) | Any secret found | Security, CD |
 
 Results are uploaded to the GitHub **Security** tab. Findings, fixes and accepted
-risks are documented in [SECURITY.md](SECURITY.md).
+risks are documented in [SECURITY.md](SECURITY.md). Accepted Checkov findings are
+suppressed in the code next to the resource with a written reason
+(`#checkov:skip=<ID>:<why>`), so a reviewer sees the justification in the PR.
 
 ## Project Structure
 
@@ -277,7 +357,8 @@ All request and response bodies are JSON. Amounts are whole numbers in RWF.
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/health` | Service health check |
+| `GET` | `/health` | Liveness check (used by the load balancer) |
+| `GET` | `/health/ready` | Readiness check: can the app reach its database? |
 | `POST` | `/api/groups` | Create a group |
 | `GET` | `/api/groups` | List groups |
 | `GET` | `/api/groups/:groupId` | Get one group |
@@ -291,18 +372,27 @@ All request and response bodies are JSON. Amounts are whole numbers in RWF.
 | `GET` | `/api/groups/:groupId/payouts` | View payout history |
 | `GET` | `/api/groups/:groupId/summary` | View the group overview |
 
+`/health` vs `/health/ready`: `/health` is the **liveness** check. It only says the
+process is up, so the load balancer and Docker keep using it and a short database
+outage does not take the VM out of rotation. `/health/ready` is the **readiness**
+check. It runs `SELECT 1` against PostgreSQL and returns `200 {"status":"ready","database":"ok"}`
+(or `"not-configured"` when `DATABASE_URL` is unset) and `503 {"status":"not-ready","database":"error"}`
+when the database cannot be reached.
+
 ## Links
 
 - [Project Board](https://github.com/users/masasu-salomon/projects/1)
 - [Team Participation Sheet](https://docs.google.com/spreadsheets/d/1hHUFW2yBKPwx3Qw9GdPJRy3R-AMYLjvlHlPbG7LdXVs/edit?gid=0#gid=0)
 - [Repository Issues](https://github.com/masasu-salomon/ibimina-hub/issues)
-- [CI workflow](.github/workflows/ci.yml) · [Security workflow](.github/workflows/security.yml) · [SECURITY.md](SECURITY.md)
+- [CI workflow](.github/workflows/ci.yml) · [Security workflow](.github/workflows/security.yml) · [CD workflow](.github/workflows/cd.yml) · [SECURITY.md](SECURITY.md) · [CHANGELOG.md](CHANGELOG.md)
 
 ## DevOps Practices
 
 - Pull requests and at least one review are required before merging to `main`.
-- Required checks: tests, Docker build, Terraform validation and four security scans.
+- Required checks: tests, Docker build, Terraform validation, Ansible lint and four security scans.
 - Infrastructure is defined in code (`terraform/`, `ansible/`); nothing is set up by hand.
+- Releases are automatic: a merge to `main` is the only way to deploy, and every
+  image is tagged with its commit SHA so any release can be redeployed or rolled back.
 - Branches must be up to date and review conversations must be resolved.
 - `.gitignore` excludes secrets, dependencies, build output, logs and IDE files.
 - `.env.example` documents configuration without committing real secrets.

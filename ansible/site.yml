@@ -1,9 +1,34 @@
 ---
-# Configures the VM that Terraform created and deploys the API on it.
-#   ansible-playbook site.yml                    full run
-#   ansible-playbook site.yml --tags app         redeploy the container only
-#   ansible-playbook site.yml --check --diff     dry run, shows file changes
-- name: Configure the ibimina-hub server
+# Configures the two VMs Terraform created and deploys the API.
+#   ansible-playbook site.yml                          full run (what CD runs)
+#   ansible-playbook site.yml --tags app               redeploy the app only
+#   ansible-playbook site.yml -e app_tag=<commit sha>  deploy one exact build
+#   ansible-playbook site.yml --check --diff           dry run, shows file changes
+#
+# Play 1 configures the bastion first: the app VM is only reachable through it.
+
+- name: Configure the bastion (jumpbox)
+  hosts: bastion
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Check the server runs a supported Ubuntu
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['distribution'] == 'Ubuntu'
+          - ansible_facts['distribution_major_version'] is version('22', '>=')
+        fail_msg: "These roles are written for Ubuntu 22.04+, found {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}."
+        quiet: true
+      tags: always
+
+  roles:
+    - role: common
+      tags: [common]
+    - role: hardening
+      tags: [hardening]
+
+- name: Configure the app server and deploy ibimina-hub
   hosts: app
   become: true
   gather_facts: true

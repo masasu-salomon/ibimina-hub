@@ -111,3 +111,6 @@ ansible/inventory/*.local.ini
 ansible/group_vars/*/local.yml
 ansible/host_vars/
 ansible/.ansible/
+
+# Saved plans can contain secrets (e.g. the generated database password).
+*.tfplan

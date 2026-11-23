@@ -1,0 +1,40 @@
+---
+# Log Docker in to ACR as the VM's managed identity. No password is stored
+# anywhere: the VM asks the Azure metadata endpoint for a token, swaps it for a
+# short-lived ACR refresh token, and docker login uses that.
+- name: Get an Entra ID token for the VM's managed identity
+  ansible.builtin.uri:
+    url: "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fmanagement.azure.com%2F"
+    headers:
+      Metadata: "true"
+    return_content: true
+  register: app_identity_token
+  no_log: true
+
+- name: Exchange it for an ACR refresh token
+  ansible.builtin.uri:
+    url: "https://{{ app_acr_login_server }}/oauth2/exchange"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      grant_type: access_token
+      service: "{{ app_acr_login_server }}"
+      tenant: "{{ app_azure_tenant_id }}"
+      access_token: "{{ app_identity_token.json.access_token }}"
+    return_content: true
+  register: app_acr_token
+  # The AcrPull role on a brand-new VM identity takes a few minutes to propagate.
+  until: app_acr_token.status == 200
+  retries: "{{ app_acr_login_retries }}"
+  delay: "{{ app_acr_login_delay }}"
+  no_log: true
+
+- name: Log Docker in to {{ app_acr_login_server }}
+  community.docker.docker_login:
+    registry_url: "{{ app_acr_login_server }}"
+    username: "{{ app_acr_token_username }}"
+    password: "{{ app_acr_token.json.refresh_token }}"
+    reauthorize: true
+  # A fresh token every run is not a configuration change.
+  changed_when: false
+  no_log: true
