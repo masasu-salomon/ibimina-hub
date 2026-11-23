@@ -105,6 +105,7 @@ resource "azuread_service_principal" "cd" {
 # The subject uses GitHub's immutable form (owner@id/repo@id), so a renamed or
 # re-created repo with the same name can never reuse this trust.
 resource "azuread_application_federated_identity_credential" "production" {
+  #checkov:skip=CKV_AZURE_249:False positive. The subject is pinned to one repo and environment; Checkov's repo regex does not accept GitHub's immutable owner@id/name@id form.
   application_id = azuread_application.cd.id
   display_name   = "github-${var.github_environment}"
   description    = "GitHub Actions jobs in the ${var.github_environment} environment of ${var.github_repository}"
