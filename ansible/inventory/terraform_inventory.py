@@ -37,7 +37,8 @@ GROUP = "app"
 APP_HOST = os.environ.get("TF_INVENTORY_HOSTNAME", "ibimina-hub")
 BASTION_HOST = "ibimina-hub-bastion"
 # ansible/inventory/terraform_inventory.py -> repo root is two folders up.
-DEFAULT_TF_DIR = Path(__file__).resolve().parents[2] / "terraform" / "envs" / "dev"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_TF_DIR = REPO_ROOT / "terraform" / "envs" / "dev"
 TIMEOUT_SECONDS = 60
 
 
@@ -165,6 +166,10 @@ def main():
     args = parser.parse_args()
 
     tf_dir = Path(os.environ.get("TF_DIR", DEFAULT_TF_DIR)).expanduser()
+    # A relative TF_DIR (CD sets TF_DIR=terraform/envs/dev) means the repo root,
+    # not the folder Ansible happens to run from (ansible/).
+    if not tf_dir.is_absolute():
+        tf_dir = REPO_ROOT / tf_dir
     outputs = read_outputs(tf_dir)
     inventory = build_inventory(outputs) if outputs else empty_inventory()
 
