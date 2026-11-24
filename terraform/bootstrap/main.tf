@@ -102,13 +102,16 @@ resource "azuread_service_principal" "cd" {
 
 # GitHub's token for a job that runs in the "production" environment of this repo.
 # Every CD job that touches Azure runs in that environment, which only main can use.
+# The subject uses GitHub's immutable form (owner@id/repo@id), so a renamed or
+# re-created repo with the same name can never reuse this trust.
 resource "azuread_application_federated_identity_credential" "production" {
+  #checkov:skip=CKV_AZURE_249:False positive. The subject is pinned to one repo and environment; Checkov's repo regex does not accept GitHub's immutable owner@id/name@id form.
   application_id = azuread_application.cd.id
   display_name   = "github-${var.github_environment}"
   description    = "GitHub Actions jobs in the ${var.github_environment} environment of ${var.github_repository}"
   audiences      = ["api://AzureADTokenExchange"]
   issuer         = "https://token.actions.githubusercontent.com"
-  subject        = "repo:${var.github_repository}:environment:${var.github_environment}"
+  subject        = "repo:${var.github_repository_immutable}:environment:${var.github_environment}"
 }
 
 # Least privilege for the pipeline. Everything else it needs is granted next to

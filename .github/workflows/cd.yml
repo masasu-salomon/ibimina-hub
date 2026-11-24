@@ -238,7 +238,12 @@ jobs:
 
       - name: Run the Ansible playbook (deploy ${{ github.sha }})
         working-directory: ansible
-        run: ansible-playbook site.yml -e "app_tag=${{ github.sha }}"
+        run: |
+          # An empty inventory makes ansible-playbook skip every task and still
+          # exit 0, so fail here instead of "deploying" to no hosts.
+          ansible-inventory --host ibimina-hub | python3 -c 'import ipaddress,json,sys; ipaddress.ip_address(json.load(sys.stdin).get("ansible_host",""))' \
+            || { echo "::error::Inventory has no real app host; see the terraform_inventory error above"; exit 1; }
+          ansible-playbook site.yml -e "app_tag=${{ github.sha }}"
 
       - name: Smoke test the public URL
         run: |

@@ -40,6 +40,7 @@ Trivy ignores vulnerabilities without an available fix. Exceptions must be speci
 | `CKV2_AZURE_57` private endpoint | PostgreSQL | Not applicable | Private access through VNet integration (delegated subnet, `public_network_access_enabled = false`) is the alternative. |
 | `CKV_AZURE_139` public network access | ACR | Accepted | Runners push from the internet. Admin user and anonymous pull are off; every push/pull needs an identity. |
 | `CKV_AZURE_163/164/165/166/167/233/237` | ACR | Accepted | Premium-only features (or paid Defender). Compensated by the Trivy gate in CD before every push. |
+| `CKV_AZURE_249` GitHub OIDC trust | CD federated credential (bootstrap) | Not applicable (false positive) | The subject is pinned to `repo:masasu-salomon@180163847/ibimina-hub@1428870229:environment:production`: one repo, one environment, no wildcards. GitHub now signs tokens in this immutable form, and Checkov's repo regex does not accept the `@id` parts. |
 | `CKV_AZURE_119` public IP on NIC | bastion + app VM NIC (one module) | Accepted on the bastion; app VM has no public IP | The compute module only attaches a public IP when `public_ip_enabled = true` (bastion only). Checkov cannot see that flag, so the skip sits in the shared module. |
 
 Fixed rather than suppressed while writing the code: the app VM has no public IP; SSH to
